@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "78981510555",
+    "project_id": "globo-logisti",
+    "storage_bucket": "globo-logisti.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:78981510555:android:11f6e3709d338bb7c31d3e",
+        "android_client_info": {
+          "package_name": "mx.elglobo.globo_logistics"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDA6WlyH70kVEfcgnho-Kb85dT4F34j56U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

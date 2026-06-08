@@ -1,0 +1,11 @@
+{
+  "name": "globo-logistics-seed",
+  "version": "1.0.0",
+  "description": "Script de seed para Firestore — Globo Logistics",
+  "scripts": {
+    "seed": "node seed_database.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  }
+}

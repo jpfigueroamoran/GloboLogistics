@@ -1,0 +1,54 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "viajes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "operador_id", "order": "ASCENDING" },
+        { "fieldPath": "estado",      "order": "ASCENDING" },
+        { "fieldPath": "created_at",  "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "viajes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "estado",     "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "costos_operativos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "viaje_id", "order": "ASCENDING" },
+        { "fieldPath": "tipo",     "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "actividad_operativa",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "viaje_id",  "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "alertas_seguridad",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "estado",    "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "auditorias_combustible",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "nivel",       "order": "ASCENDING" },
+        { "fieldPath": "processedAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

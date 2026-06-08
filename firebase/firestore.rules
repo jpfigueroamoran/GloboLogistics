@@ -1,0 +1,167 @@
+rules_version = '2';
+
+// ─── Globo Logistics — Reglas de Seguridad Firestore ─────────────────────────
+// Principio mínimo privilegio:
+//   - Operadores: solo leen/escriben sus propios viajes y actividades
+//   - Supervisores: lectura total, escritura parcial
+//   - Administradores: acceso completo
+//   - Sin rol: sin acceso a geolocalización ni datos sensibles
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Funciones auxiliares ────────────────────────────────────────────────
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
+    }
+
+    function hasRole(role) {
+      return isAuthenticated() && getUserData().rol == role;
+    }
+
+    function hasAnyRole(roles) {
+      return isAuthenticated() && getUserData().rol in roles;
+    }
+
+    function isOperador() {
+      return hasRole('operador');
+    }
+
+    function isSupervisor() {
+      return hasRole('supervisor');
+    }
+
+    function isAdministrador() {
+      return hasRole('administrador');
+    }
+
+    function isSupervisorOrAdmin() {
+      return hasAnyRole(['supervisor', 'administrador']);
+    }
+
+    function isOwner(operadorId) {
+      return isAuthenticated() && request.auth.uid == operadorId;
+    }
+
+    // Verifica que solo se actualizan campos permitidos (no el operador_id)
+    function onlyAllowedFields(allowed) {
+      return request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(allowed);
+    }
+
+    // ── Usuarios ────────────────────────────────────────────────────────────
+    match /usuarios/{userId} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid == userId || isSupervisorOrAdmin()
+      );
+      allow create: if isAdministrador();
+      allow update: if isAdministrador() ||
+        // El usuario actualiza su propio token FCM y registro de acceso
+        (request.auth.uid == userId &&
+         onlyAllowedFields(['fcm_token', 'ultimo_acceso']));
+      allow delete: if isAdministrador();
+    }
+
+    // ── Unidades ────────────────────────────────────────────────────────────
+    // CRÍTICO: La geolocalización solo es accesible por roles autorizados.
+    match /unidades/{unidadId} {
+      allow read: if isSupervisorOrAdmin() ||
+        // El operador asignado puede leer su unidad (sin geoloc de otras)
+        (isOperador() && resource.data.operador_asignado_id == request.auth.uid);
+
+      // Operadores actualizan posición de su unidad asignada (ping GPS mobile)
+      allow update: if isSupervisorOrAdmin() ||
+        (isOperador() &&
+         resource.data.operador_asignado_id == request.auth.uid &&
+         onlyAllowedFields(['ultima_posicion', 'ultima_actualizacion_posicion']));
+
+      allow create, delete: if isAdministrador();
+    }
+
+    // ── Viajes ────────────────────────────────────────────────────────────
+    match /viajes/{viajeId} {
+      allow read: if isSupervisorOrAdmin() ||
+        // Operador solo lee sus propios viajes
+        (isOperador() && resource.data.operador_id == request.auth.uid);
+
+      allow create: if isSupervisorOrAdmin();
+
+      // Operador solo puede actualizar estado y campos operativos
+      allow update: if isSupervisorOrAdmin() ||
+        (isOperador() &&
+         resource.data.operador_id == request.auth.uid &&
+         onlyAllowedFields([
+           'estado',
+           'fecha_inicio',
+           'fecha_fin',
+           'observaciones',
+           'updated_at'
+         ]));
+
+      allow delete: if isAdministrador();
+    }
+
+    // ── Actividad Operativa (logs en tiempo real) ─────────────────────────
+    match /actividad_operativa/{actividadId} {
+      allow read: if isSupervisorOrAdmin() ||
+        (isOperador() && resource.data.operador_id == request.auth.uid);
+
+      // Operadores solo crean sus propias actividades
+      allow create: if isAuthenticated() &&
+        request.resource.data.operador_id == request.auth.uid;
+
+      // Inmutables una vez creadas
+      allow update, delete: if isAdministrador();
+    }
+
+    // ── Costos Operativos ────────────────────────────────────────────────
+    match /costos_operativos/{costoId} {
+      allow read: if isSupervisorOrAdmin() ||
+        (isOperador() && resource.data.operador_id == request.auth.uid);
+
+      allow create: if isAuthenticated() &&
+        request.resource.data.operador_id == request.auth.uid &&
+        // Validar que el monto sea positivo
+        request.resource.data.monto > 0;
+
+      // Solo supervisores pueden verificar/corregir costos
+      allow update: if isSupervisorOrAdmin();
+      allow delete: if isAdministrador();
+    }
+
+    // ── Alertas de Seguridad ────────────────────────────────────────────
+    match /alertas_seguridad/{alertaId} {
+      allow read: if isSupervisorOrAdmin() ||
+        (isOperador() && resource.data.operador_id == request.auth.uid);
+
+      // Operadores pueden crear alertas SOS
+      allow create: if isAuthenticated() &&
+        request.resource.data.operador_id == request.auth.uid;
+
+      // Solo supervisores/admins pueden atender alertas
+      allow update: if isSupervisorOrAdmin() &&
+        onlyAllowedFields([
+          'estado',
+          'atendida_por',
+          'notas',
+          'fecha_atencion',
+          'notificacion_enviada',
+          'notificacion_timestamp',
+          'destinatarios_notificados'
+        ]);
+
+      // La posición SOS puede ser actualizada por el propio operador
+      allow update: if isAuthenticated() &&
+        resource.data.operador_id == request.auth.uid &&
+        onlyAllowedFields(['posicion', 'ultima_actualizacion']);
+
+      allow delete: if isAdministrador();
+    }
+
+  }
+}

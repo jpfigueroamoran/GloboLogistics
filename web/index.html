@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="A new Flutter project.">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="globo_logistics">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>Globo Logistics — Torre de Control</title>
+  <link rel="manifest" href="manifest.json">
+
+  <!--
+    Google Maps JavaScript API
+    Reemplaza REPLACE_WITH_GOOGLE_MAPS_API_KEY con tu clave real.
+    Obtenla en: https://console.cloud.google.com → APIs & Services → Credentials
+    Habilita: Maps JavaScript API
+  -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=REPLACE_WITH_GOOGLE_MAPS_API_KEY"></script>
+</head>
+<body>
+  <!--
+    You can customize the "flutter_bootstrap.js" script.
+    This is useful to provide a custom configuration to the Flutter loader
+    or to give the user feedback during the initialization process.
+
+    For more details:
+    * https://docs.flutter.dev/platform-integration/web/initialization
+  -->
+  <script src="flutter_bootstrap.js" async></script>
+
+  <!-- Globo Logistics — Alarma SOS (Web Audio API, sin archivos de audio) -->
+  <script>
+    function globoPlaySosAlarm() {
+      if (window._sosAlarmInterval) return;
+      var AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      window._sosAlarmCtx = new AudioCtx();
+
+      function playPulse() {
+        var ctx = window._sosAlarmCtx;
+        if (!ctx || ctx.state === 'closed') return;
+        if (ctx.state === 'suspended') ctx.resume();
+        var t    = ctx.currentTime;
+        var osc  = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(600, t);
+        osc.frequency.exponentialRampToValueAtTime(1050, t + 0.38);
+        osc.frequency.exponentialRampToValueAtTime(600,  t + 0.76);
+        gain.gain.setValueAtTime(0,    t);
+        gain.gain.linearRampToValueAtTime(0.28, t + 0.05);
+        gain.gain.setValueAtTime(0.28, t + 0.70);
+        gain.gain.linearRampToValueAtTime(0,    t + 0.76);
+        osc.start(t);
+        osc.stop(t + 0.77);
+      }
+
+      playPulse();
+      window._sosAlarmInterval = setInterval(playPulse, 860);
+    }
+
+    function globoStopSosAlarm() {
+      if (window._sosAlarmInterval) {
+        clearInterval(window._sosAlarmInterval);
+        window._sosAlarmInterval = null;
+      }
+      if (window._sosAlarmCtx) {
+        try { window._sosAlarmCtx.close(); } catch (e) {}
+        window._sosAlarmCtx = null;
+      }
+    }
+  </script>
+</body>
+</html>
