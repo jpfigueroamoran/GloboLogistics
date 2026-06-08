@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shimmer/shimmer.dart';
 import '../../../../core/constants/theme_constants.dart';
 import '../../../../domain/entities/documento_vencimiento.dart';
 import '../providers/documentos_provider.dart';
@@ -14,6 +15,8 @@ class DocumentosPage extends ConsumerWidget {
     final vencidos    = ref.watch(documentosVencidosCountProvider);
     final proximos    = ref.watch(documentosProximosCountProvider);
     final ahora       = DateTime.now();
+
+    if (documentosAsync.isLoading) return const _DocumentosShimmer();
 
     final docs = documentosAsync.valueOrNull ?? [];
 
@@ -312,6 +315,101 @@ class _DocumentoTile extends StatelessWidget {
             style: GloboTypography.caption.copyWith(color: color),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Skeleton de carga ─────────────────────────────────────────────────────────
+
+class _DocumentosShimmer extends StatelessWidget {
+  const _DocumentosShimmer();
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: GloboColors.backgroundTertiary,
+      highlightColor: GloboColors.backgroundSecondary,
+      child: Padding(
+        padding: const EdgeInsets.all(GloboSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Fake header
+            Container(
+              height: 22,
+              width: 260,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: GloboRadius.buttonRadius,
+              ),
+            ),
+            const SizedBox(height: GloboSpacing.sm),
+            Container(
+              height: 14,
+              width: 160,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: GloboRadius.buttonRadius,
+              ),
+            ),
+            const SizedBox(height: GloboSpacing.md),
+            // Fake 3-column sections
+            Expanded(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: List.generate(3, (col) => Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                        right: col < 2 ? GloboSpacing.md : 0),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: GloboRadius.cardRadius,
+                      ),
+                      child: Column(
+                        children: [
+                          // Column header
+                          Container(
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: const BorderRadius.only(
+                                topLeft:  Radius.circular(GloboRadius.md),
+                                topRight: Radius.circular(GloboRadius.md),
+                              ),
+                            ),
+                          ),
+                          ...List.generate(4, (_) => Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: GloboSpacing.md,
+                              vertical: GloboSpacing.sm,
+                            ),
+                            child: Row(children: [
+                              Container(
+                                  width: 36, height: 36,
+                                  color: Colors.white),
+                              const SizedBox(width: GloboSpacing.sm),
+                              Expanded(child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(height: 13, color: Colors.white),
+                                  const SizedBox(height: 5),
+                                  Container(height: 10, width: 90,
+                                      color: Colors.white),
+                                ],
+                              )),
+                            ]),
+                          )),
+                        ],
+                      ),
+                    ),
+                  ),
+                )),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

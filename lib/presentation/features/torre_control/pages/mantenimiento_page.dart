@@ -1,16 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shimmer/shimmer.dart';
 import '../../../../core/constants/theme_constants.dart';
 import '../../../../domain/entities/mantenimiento.dart';
 import '../providers/mantenimiento_provider.dart';
+import '../providers/unidades_provider.dart';
 
 class MantenimientoPage extends ConsumerWidget {
   const MantenimientoPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final unidadesAsync  = ref.watch(unidadesActivasProvider);
     final mantenimientos = ref.watch(mantenimientosProvider);
     final criticos       = ref.watch(mantenimientosCriticosProvider);
+
+    if (unidadesAsync.isLoading) return const _MantenimientoShimmer();
 
     return Padding(
       padding: const EdgeInsets.all(GloboSpacing.md),
@@ -257,6 +262,39 @@ class _OdometroRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ── Skeleton de carga ─────────────────────────────────────────────────────────
+
+class _MantenimientoShimmer extends StatelessWidget {
+  const _MantenimientoShimmer();
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: GloboColors.backgroundTertiary,
+      highlightColor: GloboColors.backgroundSecondary,
+      child: Padding(
+        padding: const EdgeInsets.all(GloboSpacing.md),
+        child: GridView.builder(
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 380,
+            mainAxisExtent: 220,
+            crossAxisSpacing: GloboSpacing.md,
+            mainAxisSpacing: GloboSpacing.md,
+          ),
+          itemCount: 6,
+          itemBuilder: (_, __) => Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: GloboRadius.cardRadius,
+              border: Border.all(color: GloboColors.divider),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

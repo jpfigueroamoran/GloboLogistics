@@ -2,6 +2,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants/theme_constants.dart';
+import '../../core/providers/theme_mode_provider.dart';
 import '../../core/services/fcm_service.dart';
 import 'router.dart';
 import 'sos_overlay.dart';
@@ -18,7 +19,8 @@ class GloboApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final router = ref.watch(routerProvider);
+    final router    = ref.watch(routerProvider);
+    final themeMode = ref.watch(themeModeProvider);
 
     ref.listen<AsyncValue<RemoteMessage?>>(fcmForegroundProvider, (_, next) {
       next.whenData((message) {
@@ -36,7 +38,7 @@ class GloboApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       theme:                      GloboTheme.light,
       darkTheme:                  GloboTheme.dark,
-      themeMode:                  ThemeMode.light,
+      themeMode:                  themeMode,
       scaffoldMessengerKey:       _scaffoldMessengerKey,
       routerConfig:               router,
     );

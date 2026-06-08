@@ -122,6 +122,29 @@ class _TopOffendersPanel extends StatelessWidget {
       }
     });
 
+    // Unidad con peor rendimiento km/L
+    // distanciaKm ≈ litrosTelemetria × 3.5 (rendimiento base flota — mismo factor que CF recalcularTco)
+    final rendPorUnidad = <String, List<double>>{};
+    for (final v in viajes) {
+      if (v.litrosCargados > 0 && v.litrosConsumiidosTelemetria > 0) {
+        final km = v.litrosConsumiidosTelemetria * 3.5;
+        rendPorUnidad.putIfAbsent(v.unidadId, () => []).add(km / v.litrosCargados);
+      }
+    }
+    String peorUnidad = 'Sin datos';
+    String peorRendStr = '—';
+    if (rendPorUnidad.isNotEmpty) {
+      double minRend = double.infinity;
+      rendPorUnidad.forEach((uid, rends) {
+        final prom = rends.reduce((a, b) => a + b) / rends.length;
+        if (prom < minRend) {
+          minRend = prom;
+          peorUnidad = uid;
+        }
+      });
+      if (minRend.isFinite) peorRendStr = '${minRend.toStringAsFixed(1)} Km/L';
+    }
+
     return Container(
       padding: const EdgeInsets.all(GloboSpacing.md),
       margin: const EdgeInsets.all(GloboSpacing.md),
@@ -152,11 +175,11 @@ class _TopOffendersPanel extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: GloboSpacing.md),
-              const Expanded(
+              Expanded(
                 child: _OffenderCard(
                   titulo: 'Unidad con Peor Rendimiento',
-                  valor: 'UNIDAD-002 (Ejemplo)',
-                  metrica: '1.2 Km/L',
+                  valor: peorUnidad,
+                  metrica: peorRendStr,
                   color: GloboColors.error,
                 ),
               ),
@@ -265,10 +288,14 @@ class _HistorialRow extends StatelessWidget {
     final format = DateFormat('dd MMM yyyy, HH:mm');
     final finStr = viaje.fechaFin != null ? format.format(viaje.fechaFin!) : 'N/A';
     
-    // Cálculo de rendimiento (Km/L) estimado
+    // Km estimado: litrosTelemetria × 3.5 km/L base (mismo factor que CF recalcularTco)
     final litros = viaje.litrosCargados;
-    final kmAprox = 450.0; // Distancia hardcodeada para ejemplo
-    final rendimiento = litros > 0 ? (kmAprox / litros).toStringAsFixed(1) : 'N/A';
+    final kmEstimado = viaje.litrosConsumiidosTelemetria > 0
+        ? viaje.litrosConsumiidosTelemetria * 3.5
+        : 0.0;
+    final rendimiento = (litros > 0 && kmEstimado > 0)
+        ? (kmEstimado / litros).toStringAsFixed(1)
+        : 'N/A';
     
     final varianza = viaje.varianzaCombustible;
     final varianzaStr = varianza != null ? '${(varianza * 100).toStringAsFixed(1)}%' : 'N/A';

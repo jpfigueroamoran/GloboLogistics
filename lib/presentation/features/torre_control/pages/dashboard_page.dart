@@ -18,6 +18,7 @@ import 'documentos_page.dart';
 import 'auditoria_page.dart';
 import 'usuarios_page.dart';
 import 'historial_viajes_page.dart';
+import '../../../../core/providers/theme_mode_provider.dart';
 import '../../../../demo/demo_providers.dart' show demoUserProvider;
 
 // ── Índices de sección ────────────────────────────────────────────────────────
@@ -73,7 +74,15 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                   metrics: metrics,
                   seccionLabel: _seccionLabel(_seccion),
                 ),
-                Expanded(child: _buildContent()),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child: KeyedSubtree(
+                      key: ValueKey(_seccion),
+                      child: _buildContent(),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -139,6 +148,9 @@ class _Sidebar extends StatelessWidget {
           const SizedBox(height: GloboSpacing.lg),
           _LogoIcon(),
           const Divider(color: Colors.white24, height: GloboSpacing.xl),
+
+          // ── OPERACIONES ────────────────────────────────────────────
+          const _GroupLabel('OPS'),
           _NavItem(
             icon: Icons.dashboard_outlined,
             label: 'Overview',
@@ -160,21 +172,21 @@ class _Sidebar extends StatelessWidget {
           _NavItem(
             icon: Icons.build_outlined,
             label: 'Mantto.',
-            badge: mantenimientoCriticos > 0
-                ? mantenimientoCriticos
-                : null,
+            badge: mantenimientoCriticos > 0 ? mantenimientoCriticos : null,
             isSelected: selected == _Seccion.mantenimiento,
             onTap: () => onSelect(_Seccion.mantenimiento),
           ),
           _NavItem(
             icon: Icons.description_outlined,
             label: 'Docs.',
-            badge:
-                documentosVencidos > 0 ? documentosVencidos : null,
+            badge: documentosVencidos > 0 ? documentosVencidos : null,
             isSelected: selected == _Seccion.documentos,
             onTap: () => onSelect(_Seccion.documentos),
           ),
+
+          // ── CONTROL ────────────────────────────────────────────────
           const Spacer(),
+          const _GroupLabel('CTRL'),
           _NavItem(
             icon: Icons.warning_amber_outlined,
             label: 'Alertas',
@@ -194,9 +206,11 @@ class _Sidebar extends StatelessWidget {
             isSelected: selected == _Seccion.historialViajes,
             onTap: () => onSelect(_Seccion.historialViajes),
           ),
+
+          // ── ADMIN ──────────────────────────────────────────────────
           const Spacer(),
           if (esAdmin) ...[
-            const Divider(color: Colors.white24, height: GloboSpacing.md),
+            const _GroupLabel('ADM'),
             _NavItem(
               icon: Icons.manage_accounts_outlined,
               label: 'Usuarios',
@@ -210,7 +224,7 @@ class _Sidebar extends StatelessWidget {
             builder: (context, ref, _) {
               return _NavItem(
                 icon: Icons.logout,
-                label: 'Cerrar Sesión',
+                label: 'Salir',
                 onTap: () {
                   ref.read(demoUserProvider.notifier).state = null;
                 },
@@ -325,14 +339,14 @@ class _NavItem extends StatelessWidget {
 
 // ── Top Bar ───────────────────────────────────────────────────────────────────
 
-class _TopBar extends StatelessWidget {
+class _TopBar extends ConsumerWidget {
   final DashboardMetrics metrics;
   final String seccionLabel;
 
   const _TopBar({required this.metrics, required this.seccionLabel});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Container(
       height: 64,
       padding: const EdgeInsets.symmetric(horizontal: GloboSpacing.xl),
@@ -374,8 +388,10 @@ class _TopBar extends StatelessWidget {
               color: GloboColors.error,
             ),
           ],
+          const SizedBox(width: GloboSpacing.sm),
+          _ThemeModeToggle(),
           const SizedBox(width: GloboSpacing.lg),
-          _DateTimeDisplay(),
+          const _DateTimeDisplay(),
         ],
       ),
     );
@@ -417,25 +433,89 @@ class _MetricChip extends StatelessWidget {
 }
 
 class _DateTimeDisplay extends StatelessWidget {
+  const _DateTimeDisplay();
+
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Text(
-          '${now.day.toString().padLeft(2, '0')}/'
-          '${now.month.toString().padLeft(2, '0')}/'
-          '${now.year}',
-          style: GloboTypography.monoData.copyWith(fontSize: 12),
-        ),
-        Text(
-          '${now.hour.toString().padLeft(2, '0')}:'
-          '${now.minute.toString().padLeft(2, '0')}',
-          style: GloboTypography.titleMedium.copyWith(letterSpacing: 1),
-        ),
-      ],
+    return StreamBuilder<DateTime>(
+      stream: Stream.periodic(const Duration(seconds: 30), (_) => DateTime.now()),
+      initialData: DateTime.now(),
+      builder: (_, snap) {
+        final now = snap.data!;
+        return Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              '${now.day.toString().padLeft(2, '0')}/'
+              '${now.month.toString().padLeft(2, '0')}/'
+              '${now.year}',
+              style: GloboTypography.monoData.copyWith(fontSize: 12),
+            ),
+            Text(
+              '${now.hour.toString().padLeft(2, '0')}:'
+              '${now.minute.toString().padLeft(2, '0')}',
+              style: GloboTypography.titleMedium.copyWith(letterSpacing: 1),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// ── Etiqueta de grupo para el sidebar ────────────────────────────────────────
+
+class _GroupLabel extends StatelessWidget {
+  final String label;
+  const _GroupLabel(this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        vertical: GloboSpacing.xs,
+        horizontal: GloboSpacing.sm,
+      ),
+      child: Row(
+        children: [
+          const Expanded(child: Divider(color: Colors.white12, height: 1)),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white30,
+              fontSize: 8,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.5,
+            ),
+          ),
+          const SizedBox(width: 5),
+          const Expanded(child: Divider(color: Colors.white12, height: 1)),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Toggle modo oscuro / claro ────────────────────────────────────────────────
+
+class _ThemeModeToggle extends ConsumerWidget {
+  const _ThemeModeToggle();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
+    final isDark = themeMode == ThemeMode.dark;
+    return IconButton(
+      icon: Icon(
+        isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+        size: 20,
+        color: GloboColors.steelGray,
+      ),
+      tooltip: isDark ? 'Modo claro' : 'Modo oscuro',
+      onPressed: () => ref.read(themeModeProvider.notifier).state =
+          isDark ? ThemeMode.light : ThemeMode.dark,
     );
   }
 }
