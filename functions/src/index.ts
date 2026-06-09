@@ -59,6 +59,8 @@ const C = {
     usuarios:  "usuarios",
     auditorias:"auditorias_combustible",
     rateLimits:"rate_limit_operadores",
+    actividad: "actividad_operativa",
+    scores:    "scores_operadores",
   },
 };
 
@@ -387,6 +389,11 @@ export const onAlertaSOS = onDocumentCreated(
       destinatarios_fallidos:      resp.failureCount,
     });
 
+    // Incrementar contador SOS en el score del operador
+    if (operadorId) {
+      await _incrementarSOSEnScore(operadorId);
+    }
+
     logger.info(`SOS notificado — éxito: ${resp.successCount} fallo: ${resp.failureCount}`);
   }
 );
@@ -404,6 +411,8 @@ export const recalcularTco = onDocumentWritten(
 
     if (!after || !before) return;
     if (before.estado === "completado" || after.estado !== "completado") return;
+    // lifecycleViajeCompletado ya cubre este cálculo
+    if (after.lc_completado === true) return;
 
     const viajeId = event.params.viajeId;
     logger.info(`TCO final — viaje completado: ${viajeId}`);
@@ -790,6 +799,8 @@ export const generarFacturaViaje = onDocumentWritten(
     // Solo cuando transiciona a completado
     if (!after || !before) return;
     if (before.estado === "completado" || after.estado !== "completado") return;
+    // lifecycleViajeCompletado cubre facturación con TCO correcto
+    if (after.lc_completado === true) return;
 
     const viajeId = event.params.viajeId;
     const COL_FACTURAS = "facturas_clientes";
@@ -1085,4 +1096,385 @@ async function _notificarTorreControl(
     },
     android: { priority: "high" },
   });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FUNCIÓN 14 — CICLO DE VIDA: Viaje → enCurso
+// - fecha_inicio en viaje (si faltaba)
+// - unidad.estado = "enTransito"
+// - actividad_operativa: viaje_iniciado
+// - FCM a supervisores/admins
+// ═══════════════════════════════════════════════════════════════════
+
+export const lifecycleViajeEnCurso = onDocumentWritten(
+  `${C.COL.viajes}/{viajeId}`,
+  async (event) => {
+    const before = event.data?.before?.data();
+    const after  = event.data?.after?.data();
+    if (!after || !before) return;
+    if (before.estado === "enCurso" || after.estado !== "enCurso") return;
+
+    const viajeId        = event.params.viajeId;
+    const unidadId       = (after.unidad_id       ?? "") as string;
+    const operadorId     = (after.operador_id     ?? "") as string;
+    const operadorNombre = (after.operador_nombre ?? operadorId) as string;
+    const origenDesc     = (after.origen_descripcion  ?? "") as string;
+    const destinoDesc    = (after.destino_descripcion ?? "") as string;
+
+    logger.info(`lifecycleViajeEnCurso — ${viajeId}`);
+
+    const batch = db.batch();
+
+    if (!after.fecha_inicio) {
+      batch.update(db.collection(C.COL.viajes).doc(viajeId), {
+        fecha_inicio: admin.firestore.FieldValue.serverTimestamp(),
+        updated_at:   admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    if (unidadId) {
+      batch.update(db.collection(C.COL.unidades).doc(unidadId), {
+        estado:               "enTransito",
+        viaje_activo_id:      viajeId,
+        ultima_actualizacion: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    batch.set(db.collection(C.COL.actividad).doc(), {
+      tipo:        "viaje_iniciado",
+      viaje_id:    viajeId,
+      operador_id: operadorId,
+      unidad_id:   unidadId,
+      timestamp:   admin.firestore.FieldValue.serverTimestamp(),
+      metadata: {
+        origen_descripcion:  origenDesc,
+        destino_descripcion: destinoDesc,
+        operador_nombre:     operadorNombre,
+      },
+    });
+
+    await batch.commit();
+
+    // FCM a supervisores/admins
+    const tokens = await _tokensDeRoles(["supervisor", "administrador"]);
+    if (tokens.length > 0) {
+      await getMessaging().sendEachForMulticast({
+        tokens,
+        notification: {
+          title: "🚛 Viaje Iniciado",
+          body:  `${operadorNombre} — ${origenDesc} → ${destinoDesc}`,
+        },
+        data: {
+          tipo:         "viaje_iniciado",
+          viaje_id:     viajeId,
+          operador_id:  operadorId,
+          unidad_id:    unidadId,
+          click_action: "FLUTTER_NOTIFICATION_CLICK",
+        },
+        android: { priority: "normal" },
+      });
+    }
+
+    logger.info(`lifecycleViajeEnCurso OK — ${viajeId}`);
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════
+// FUNCIÓN 15 — CICLO DE VIDA: Viaje → completado
+// Pipeline idempotente (lock transaccional con lc_completado):
+//   1. TCO final desde costos_operativos
+//   2. viaje: tco, costo_por_km, fecha_fin
+//   3. unidad: odometro_actual, estado (disponible / mantenimiento)
+//   4. Cerrar alertas activas del viaje
+//   5. Score del operador en scores_operadores
+//   6. Factura (si no existe)
+//   7. actividad_operativa: viaje_completado
+//   8. FCM al operador + supervisores/admins
+// Supersede: recalcularTco + generarFacturaViaje (quedan como fallback)
+// ═══════════════════════════════════════════════════════════════════
+
+export const lifecycleViajeCompletado = onDocumentWritten(
+  `${C.COL.viajes}/{viajeId}`,
+  async (event) => {
+    const before = event.data?.before?.data();
+    const after  = event.data?.after?.data();
+    if (!after || !before) return;
+    if (before.estado === "completado" || after.estado !== "completado") return;
+
+    const viajeId  = event.params.viajeId;
+    const viajeRef = db.collection(C.COL.viajes).doc(viajeId);
+
+    // ── Lock idempotente ─────────────────────────────────────────────
+    const yaProcessado = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(viajeRef);
+      if (snap.data()?.lc_completado === true) return true;
+      tx.update(viajeRef, { lc_completado: true });
+      return false;
+    });
+    if (yaProcessado) {
+      logger.info(`lifecycleViajeCompletado — ya procesado: ${viajeId}`);
+      return;
+    }
+
+    const unidadId       = (after.unidad_id       ?? "") as string;
+    const operadorId     = (after.operador_id     ?? "") as string;
+    const operadorNombre = (after.operador_nombre ?? operadorId) as string;
+    const clienteId      = (after.cliente_id      ?? "") as string;
+    const clienteNombre  = (after.cliente_nombre  ?? "Cliente") as string;
+    const tieneBanderaRoja = after.nivel_alerta === "bandajaRoja";
+    const odometroFin    = (after.odometro_fin    ?? 0) as number;
+    const odometroInicio = (after.odometro_inicio ?? 0) as number;
+
+    logger.info(`lifecycleViajeCompletado — iniciando: ${viajeId}`);
+
+    try {
+      // ── 1. TCO FINAL ─────────────────────────────────────────────
+      const costosSnap = await db
+        .collection(C.COL.costos)
+        .where("viaje_id", "==", viajeId)
+        .get();
+
+      const tco = { combustible: 0, mantenimiento: 0, peajes: 0, grua: 0, otros: 0, total: 0 };
+      for (const doc of costosSnap.docs) {
+        const { tipo, monto } = doc.data() as { tipo: string; monto: number };
+        if      (tipo === "diesel")        tco.combustible   += monto;
+        else if (tipo === "mantenimiento") tco.mantenimiento += monto;
+        else if (tipo === "peaje")         tco.peajes        += monto;
+        else if (tipo === "grua")          tco.grua          += monto;
+        else                               tco.otros         += monto;
+      }
+      tco.total = tco.combustible + tco.mantenimiento + tco.peajes + tco.grua + tco.otros;
+      const distanciaKm = Math.max(0, odometroFin - odometroInicio);
+      const costoPorKm  = distanciaKm > 0 ? tco.total / distanciaKm : 0;
+
+      // ── 2. ACTUALIZAR VIAJE ──────────────────────────────────────
+      await viajeRef.update({
+        tco,
+        costo_por_km: costoPorKm,
+        ...(after.fecha_fin ? {} : { fecha_fin: admin.firestore.FieldValue.serverTimestamp() }),
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // ── 3. ACTUALIZAR UNIDAD ─────────────────────────────────────
+      let alertasSnap = { size: 0, docs: [] as FirebaseFirestore.QueryDocumentSnapshot[] };
+      if (unidadId) {
+        const unidadSnap = await db.collection(C.COL.unidades).doc(unidadId).get();
+        const proxMant   = (unidadSnap.data()?.proximo_mantenimiento_odometro ?? 0) as number;
+        const necesitaMant = odometroFin > 0 && proxMant > 0 && odometroFin >= proxMant;
+        const unidadUpd: Record<string, unknown> = {
+          estado:               necesitaMant ? "mantenimiento" : "disponible",
+          viaje_activo_id:      null,
+          ultima_actualizacion: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        if (odometroFin > 0) unidadUpd.odometro_actual = odometroFin;
+        await db.collection(C.COL.unidades).doc(unidadId).update(unidadUpd);
+        if (necesitaMant) {
+          logger.info(`Unidad ${unidadId} requiere mantenimiento (odómetro: ${odometroFin})`);
+        }
+      }
+
+      // ── 4. CERRAR ALERTAS DEL VIAJE ──────────────────────────────
+      const alertasQuery = await db
+        .collection(C.COL.alertas)
+        .where("viaje_id", "==", viajeId)
+        .where("estado",   "==", "activa")
+        .get();
+      alertasSnap = alertasQuery;
+      if (!alertasQuery.empty) {
+        const alertBatch = db.batch();
+        for (const doc of alertasQuery.docs) {
+          alertBatch.update(doc.ref, {
+            estado:       "cerrada_automaticamente",
+            fecha_cierre: admin.firestore.FieldValue.serverTimestamp(),
+            notas:        "Cerrada automáticamente al completar el viaje.",
+          });
+        }
+        await alertBatch.commit();
+      }
+
+      // ── 5. SCORE DEL OPERADOR ────────────────────────────────────
+      if (operadorId) {
+        await _actualizarScoreOperador(operadorId, operadorNombre, tieneBanderaRoja);
+      }
+
+      // ── 6. FACTURA (idempotente) ─────────────────────────────────
+      const COL_FC  = "facturas_clientes";
+      const COL_CFG = "config";
+      const existente = await db.collection(COL_FC)
+        .where("viaje_id", "==", viajeId).limit(1).get();
+
+      if (existente.empty) {
+        const pricing    = (await db.collection(COL_CFG).doc("pricing").get()).data();
+        const margenPct  = (pricing?.margen_pct ?? 0.15) as number;
+        const monto      = parseFloat((tco.total * (1 + margenPct)).toFixed(2));
+        const anio       = new Date().getFullYear();
+        const contadorId = `factura_contador_${anio}`;
+
+        const nro = await db.runTransaction(async (tx) => {
+          const cRef = db.collection(COL_CFG).doc(contadorId);
+          const cSnap = await tx.get(cRef);
+          const sig = ((cSnap.data()?.ultimo ?? 0) as number) + 1;
+          tx.set(cRef, { ultimo: sig }, { merge: true });
+          return `GL-${anio}-${String(sig).padStart(4, "0")}`;
+        });
+
+        const emision     = new Date();
+        const vencimiento = new Date(emision);
+        vencimiento.setDate(vencimiento.getDate() + 30);
+
+        await db.collection(COL_FC).add({
+          viaje_id:          viajeId,
+          cliente_id:        clienteId,
+          cliente_nombre:    clienteNombre,
+          numero_factura:    nro,
+          fecha_emision:     admin.firestore.Timestamp.fromDate(emision),
+          fecha_vencimiento: admin.firestore.Timestamp.fromDate(vencimiento),
+          monto,
+          monto_cobrado:     null,
+          estatus:           "pendiente",
+          fecha_cobro:       null,
+          carta_porte_uuid:  null,
+          tco_base:          tco.total,
+          margen_pct:        margenPct,
+          created_at:        admin.firestore.FieldValue.serverTimestamp(),
+        });
+        logger.info(`Factura ${nro}: $${monto.toFixed(2)} (viaje: ${viajeId})`);
+      }
+
+      // ── 7. ACTIVIDAD OPERATIVA ───────────────────────────────────
+      await db.collection(C.COL.actividad).add({
+        tipo:        "viaje_completado",
+        viaje_id:    viajeId,
+        operador_id: operadorId,
+        unidad_id:   unidadId,
+        timestamp:   admin.firestore.FieldValue.serverTimestamp(),
+        metadata: {
+          tco_total:          tco.total,
+          costo_por_km:       costoPorKm,
+          distancia_km:       distanciaKm,
+          operador_nombre:    operadorNombre,
+          tenia_bandera_roja: tieneBanderaRoja,
+          alertas_cerradas:   alertasSnap.size,
+        },
+      });
+
+      // ── 8. FCM OPERADOR + TORRE ──────────────────────────────────
+      const tokens = await _tokensDeRoles(["supervisor", "administrador"]);
+      const opSnap = await db.collection(C.COL.usuarios).doc(operadorId).get();
+      const opFcm  = opSnap.data()?.fcm_token as string | undefined;
+      if (opFcm) tokens.push(opFcm);
+
+      if (tokens.length > 0) {
+        await getMessaging().sendEachForMulticast({
+          tokens,
+          notification: {
+            title: "✅ Viaje Completado",
+            body:  `${operadorNombre} — TCO: $${tco.total.toFixed(2)} MXN`,
+          },
+          data: {
+            tipo:         "viaje_completado",
+            viaje_id:     viajeId,
+            operador_id:  operadorId,
+            tco_total:    tco.total.toFixed(2),
+            click_action: "FLUTTER_NOTIFICATION_CLICK",
+          },
+          android: { priority: "normal" },
+        });
+      }
+
+      logger.info(
+        `lifecycleViajeCompletado OK — ${viajeId} ` +
+        `TCO=$${tco.total.toFixed(2)} km=${distanciaKm} alertas=${alertasSnap.size}`
+      );
+
+    } catch (err) {
+      logger.error(`lifecycleViajeCompletado ERROR — ${viajeId}:`, err);
+      await viajeRef.update({ lc_completado: false }).catch(() => null);
+      throw err; // Activa el reintento automático de Cloud Functions
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════
+// HELPERS — Score de operadores
+// ═══════════════════════════════════════════════════════════════════
+
+function _calcularScore(
+  viajesCompletados: number,
+  totalViajes:       number,
+  alertasSOS:        number,
+  banderasRojas:     number,
+): number {
+  if (totalViajes === 0) return 100;
+  const completitud  = viajesCompletados / totalViajes;
+  const sosRate      = Math.min(alertasSOS    / totalViajes, 1);
+  const banderaRate  = Math.min(banderasRojas / totalViajes, 1);
+  return Math.max(0, Math.min(100,
+    completitud        * 60 +
+    (1 - sosRate)      * 25 +
+    (1 - banderaRate)  * 15,
+  ));
+}
+
+async function _actualizarScoreOperador(
+  operadorId:       string,
+  operadorNombre:   string,
+  tieneBanderaRoja: boolean,
+): Promise<void> {
+  const ref = db.collection(C.COL.scores).doc(operadorId);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const d = snap.data() ?? { total_viajes: 0, viajes_completados: 0, alertas_sos: 0, banderas_rojas: 0 };
+    const totalViajes       = (d.total_viajes        as number) + 1;
+    const viajesCompletados = (d.viajes_completados  as number) + 1;
+    const alertasSOS        = (d.alertas_sos         as number);
+    const banderasRojas     = (d.banderas_rojas      as number) + (tieneBanderaRoja ? 1 : 0);
+    const score = _calcularScore(viajesCompletados, totalViajes, alertasSOS, banderasRojas);
+    tx.set(ref, {
+      operador_id:         operadorId,
+      operador_nombre:     operadorNombre,
+      total_viajes:        totalViajes,
+      viajes_completados:  viajesCompletados,
+      alertas_sos:         alertasSOS,
+      banderas_rojas:      banderasRojas,
+      score:               Math.round(score),
+      ultimo_viaje_at:     admin.firestore.FieldValue.serverTimestamp(),
+      updated_at:          admin.firestore.FieldValue.serverTimestamp(),
+    });
+  });
+}
+
+async function _incrementarSOSEnScore(operadorId: string): Promise<void> {
+  const ref = db.collection(C.COL.scores).doc(operadorId);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return; // Score se inicializa al completar el primer viaje
+    const d = snap.data()!;
+    const alertasSOS       = (d.alertas_sos        as number) + 1;
+    const totalViajes      = (d.total_viajes        as number);
+    const viajesComp       = (d.viajes_completados  as number);
+    const banderasRojas    = (d.banderas_rojas       as number);
+    const score = _calcularScore(viajesComp, totalViajes, alertasSOS, banderasRojas);
+    tx.update(ref, {
+      alertas_sos: alertasSOS,
+      score:       Math.round(score),
+      updated_at:  admin.firestore.FieldValue.serverTimestamp(),
+    });
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// HELPER — Tokens FCM por rol
+// ═══════════════════════════════════════════════════════════════════
+
+async function _tokensDeRoles(roles: string[]): Promise<string[]> {
+  const snap = await db.collection(C.COL.usuarios)
+    .where("rol", "in", roles)
+    .get();
+  const tokens: string[] = [];
+  for (const doc of snap.docs) {
+    const fcm = doc.data().fcm_token as string | undefined;
+    if (fcm) tokens.push(fcm);
+  }
+  return tokens;
 }
