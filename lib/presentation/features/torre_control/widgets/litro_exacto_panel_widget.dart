@@ -563,7 +563,7 @@ class _ResultadoCard extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(GloboSpacing.sm),
           decoration: BoxDecoration(
-            color: GloboColors.backgroundSecondary,
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
             borderRadius: GloboRadius.buttonRadius,
           ),
           child: Text(
@@ -665,7 +665,7 @@ class _ScoreBar extends StatelessWidget {
             borderRadius: const BorderRadius.all(Radius.circular(3)),
             child: LinearProgressIndicator(
               value: normalized,
-              backgroundColor: GloboColors.backgroundTertiary,
+              backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
               valueColor: AlwaysStoppedAnimation<Color>(color),
               minHeight: highlighted ? 8 : 5,
             ),

@@ -83,6 +83,7 @@ class ViajeModel extends Viaje {
     required super.id,
     required super.unidadId,
     required super.operadorId,
+    super.operadorNombre,
     required super.origenDescripcion,
     required super.destinoDescripcion,
     super.origenGeo,
@@ -118,6 +119,7 @@ class ViajeModel extends Viaje {
       id:                    id,
       unidadId:              map['unidad_id'] as String,
       operadorId:            map['operador_id'] as String,
+      operadorNombre:        map['operador_nombre'] as String?,
       origenDescripcion:     map['origen_descripcion'] as String? ?? '',
       destinoDescripcion:    map['destino_descripcion'] as String? ?? '',
       origenGeo:             parseGeo(map['origen_geo']),
@@ -160,6 +162,7 @@ class ViajeModel extends Viaje {
     return {
       'unidad_id':            unidadId,
       'operador_id':          operadorId,
+      if (operadorNombre != null) 'operador_nombre': operadorNombre,
       'origen_descripcion':   origenDescripcion,
       'destino_descripcion':  destinoDescripcion,
       'origen_geo':           geo(origenGeo)?.toMap(),

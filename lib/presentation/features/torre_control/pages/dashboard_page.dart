@@ -10,6 +10,7 @@ import '../providers/documentos_provider.dart';
 import '../widgets/tco_panel_widget.dart';
 import '../widgets/alerta_panel_widget.dart';
 import '../widgets/fleet_map_widget.dart';
+import '../widgets/notification_center_widget.dart';
 import 'score_operadores_page.dart';
 import 'despacho_page.dart';
 import 'alertas_reglas_page.dart';
@@ -18,6 +19,12 @@ import 'documentos_page.dart';
 import 'auditoria_page.dart';
 import 'usuarios_page.dart';
 import 'historial_viajes_page.dart';
+import 'finanzas_page.dart';
+import 'facturacion_page.dart';
+import 'proveedores_page.dart';
+import 'resumen_financiero_page.dart';
+import 'cierre_mensual_page.dart';
+import 'reportes_page.dart';
 import '../../../../core/providers/theme_mode_provider.dart';
 import '../../../../demo/demo_providers.dart' show demoUserProvider;
 
@@ -29,10 +36,16 @@ enum _Seccion {
   scoreOperadores,
   mantenimiento,
   documentos,
+  resumen,
+  finanzas,
+  proveedores,
   alertas,
   auditoria,
   historialViajes,
   usuarios,
+  facturacion,
+  cierreMensual,
+  reportes,
 }
 
 // ── Shell principal ───────────────────────────────────────────────────────────
@@ -46,6 +59,7 @@ class DashboardPage extends ConsumerStatefulWidget {
 
 class _DashboardPageState extends ConsumerState<DashboardPage> {
   _Seccion _seccion = _Seccion.overview;
+  bool _sidebarExpanded = false;
 
   @override
   Widget build(BuildContext context) {
@@ -56,7 +70,6 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
     final esAdmin    = authState.usuario?.rol == RolUsuario.administrador;
 
     return Scaffold(
-      backgroundColor: GloboColors.backgroundSecondary,
       body: Row(
         children: [
           _Sidebar(
@@ -65,7 +78,10 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
             mantenimientoCriticos: criticos,
             documentosVencidos: vencidos,
             esAdmin: esAdmin,
+            expanded: _sidebarExpanded,
             onSelect: (s) => setState(() => _seccion = s),
+            onToggleExpanded: () =>
+                setState(() => _sidebarExpanded = !_sidebarExpanded),
           ),
           Expanded(
             child: Column(
@@ -97,10 +113,16 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
         _Seccion.scoreOperadores => 'Score de Operadores',
         _Seccion.mantenimiento   => 'Mantenimiento Predictivo',
         _Seccion.documentos      => 'Documentos y Vencimientos',
+        _Seccion.resumen         => 'Resumen Financiero',
+        _Seccion.finanzas        => 'Finanzas — Activos y Pólizas',
+        _Seccion.proveedores     => 'Proveedores, CxP e Inventario',
         _Seccion.alertas         => 'Reglas de Alerta',
         _Seccion.auditoria       => 'Auditoría',
         _Seccion.historialViajes => 'Historial y TCO',
         _Seccion.usuarios        => 'Gestión de Usuarios',
+        _Seccion.facturacion     => 'Facturación / CxC',
+        _Seccion.cierreMensual   => 'Cierre Mensual',
+        _Seccion.reportes        => 'Analítica y Reportes',
       };
 
   Widget _buildContent() => switch (_seccion) {
@@ -112,10 +134,16 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
         _Seccion.scoreOperadores => const ScoreOperadoresPage(),
         _Seccion.mantenimiento   => const MantenimientoPage(),
         _Seccion.documentos      => const DocumentosPage(),
+        _Seccion.resumen         => const ResumenFinancieroPage(),
+        _Seccion.finanzas        => const FinanzasPage(),
+        _Seccion.proveedores     => const ProveedoresPage(),
         _Seccion.alertas         => const AlertasReglasPage(),
         _Seccion.auditoria       => const AuditoriaPage(),
         _Seccion.historialViajes => const HistorialViajesPage(),
         _Seccion.usuarios        => const UsuariosPage(),
+        _Seccion.facturacion     => const FacturacionPage(),
+        _Seccion.cierreMensual   => const CierreMensualPage(),
+        _Seccion.reportes        => const ReportesPage(),
       };
 }
 
@@ -127,7 +155,9 @@ class _Sidebar extends StatelessWidget {
   final int mantenimientoCriticos;
   final int documentosVencidos;
   final bool esAdmin;
+  final bool expanded;
   final ValueChanged<_Seccion> onSelect;
+  final VoidCallback onToggleExpanded;
 
   const _Sidebar({
     required this.selected,
@@ -135,99 +165,96 @@ class _Sidebar extends StatelessWidget {
     required this.mantenimientoCriticos,
     required this.documentosVencidos,
     required this.esAdmin,
+    required this.expanded,
     required this.onSelect,
+    required this.onToggleExpanded,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 72,
+    final e = expanded;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeInOut,
+      width: e ? 200 : 72,
       color: GloboColors.primary,
       child: Column(
         children: [
-          const SizedBox(height: GloboSpacing.lg),
-          _LogoIcon(),
-          const Divider(color: Colors.white24, height: GloboSpacing.xl),
+          const SizedBox(height: GloboSpacing.md),
+          // ── Logo + toggle ──────────────────────────────────────────
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: e ? 12 : 0),
+            child: Row(
+              mainAxisAlignment:
+                  e ? MainAxisAlignment.spaceBetween : MainAxisAlignment.center,
+              children: [
+                _LogoIcon(),
+                if (e)
+                  const Text(
+                    'GLOBO',
+                    style: TextStyle(
+                      color: Colors.white54,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                IconButton(
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints(minWidth: 28, minHeight: 28),
+                  icon: Icon(
+                    e ? Icons.chevron_left : Icons.chevron_right,
+                    color: Colors.white38,
+                    size: 18,
+                  ),
+                  tooltip: e ? 'Contraer' : 'Expandir',
+                  onPressed: onToggleExpanded,
+                ),
+              ],
+            ),
+          ),
+          const Divider(color: Colors.white24, height: 16),
 
           // ── OPERACIONES ────────────────────────────────────────────
-          const _GroupLabel('OPS'),
-          _NavItem(
-            icon: Icons.dashboard_outlined,
-            label: 'Overview',
-            isSelected: selected == _Seccion.overview,
-            onTap: () => onSelect(_Seccion.overview),
-          ),
-          _NavItem(
-            icon: Icons.assignment_outlined,
-            label: 'Despacho',
-            isSelected: selected == _Seccion.despacho,
-            onTap: () => onSelect(_Seccion.despacho),
-          ),
-          _NavItem(
-            icon: Icons.people_outline,
-            label: 'Score',
-            isSelected: selected == _Seccion.scoreOperadores,
-            onTap: () => onSelect(_Seccion.scoreOperadores),
-          ),
-          _NavItem(
-            icon: Icons.build_outlined,
-            label: 'Mantto.',
-            badge: mantenimientoCriticos > 0 ? mantenimientoCriticos : null,
-            isSelected: selected == _Seccion.mantenimiento,
-            onTap: () => onSelect(_Seccion.mantenimiento),
-          ),
-          _NavItem(
-            icon: Icons.description_outlined,
-            label: 'Docs.',
-            badge: documentosVencidos > 0 ? documentosVencidos : null,
-            isSelected: selected == _Seccion.documentos,
-            onTap: () => onSelect(_Seccion.documentos),
-          ),
+          _GroupLabel('OPS', expanded: e),
+          _NavItem(icon: Icons.dashboard_outlined,   label: 'Overview',  expanded: e, isSelected: selected == _Seccion.overview,        onTap: () => onSelect(_Seccion.overview)),
+          _NavItem(icon: Icons.assignment_outlined,  label: 'Despacho',  expanded: e, isSelected: selected == _Seccion.despacho,         onTap: () => onSelect(_Seccion.despacho)),
+          _NavItem(icon: Icons.people_outline,       label: 'Score Op.', expanded: e, isSelected: selected == _Seccion.scoreOperadores,  onTap: () => onSelect(_Seccion.scoreOperadores)),
+          _NavItem(icon: Icons.build_outlined,       label: 'Mantto.',   expanded: e, isSelected: selected == _Seccion.mantenimiento,    badge: mantenimientoCriticos > 0 ? mantenimientoCriticos : null, onTap: () => onSelect(_Seccion.mantenimiento)),
+          _NavItem(icon: Icons.description_outlined, label: 'Docs.',     expanded: e, isSelected: selected == _Seccion.documentos,       badge: documentosVencidos > 0 ? documentosVencidos : null,       onTap: () => onSelect(_Seccion.documentos)),
+
+          // ── FINANZAS ───────────────────────────────────────────────
+          _GroupLabel('FIN', expanded: e),
+          _NavItem(icon: Icons.bar_chart_outlined,     label: 'Resumen',     expanded: e, isSelected: selected == _Seccion.resumen,     onTap: () => onSelect(_Seccion.resumen)),
+          _NavItem(icon: Icons.receipt_long_outlined,  label: 'Facturación', expanded: e, isSelected: selected == _Seccion.facturacion, onTap: () => onSelect(_Seccion.facturacion)),
+          _NavItem(icon: Icons.account_balance_outlined, label: 'Finanzas',  expanded: e, isSelected: selected == _Seccion.finanzas,    onTap: () => onSelect(_Seccion.finanzas)),
+          _NavItem(icon: Icons.inventory_2_outlined,   label: 'Prov. & Inv.', expanded: e, isSelected: selected == _Seccion.proveedores, onTap: () => onSelect(_Seccion.proveedores)),
+          _NavItem(icon: Icons.check_box_outlined,     label: 'Cierre Mes',   expanded: e, isSelected: selected == _Seccion.cierreMensual, onTap: () => onSelect(_Seccion.cierreMensual)),
+          _NavItem(icon: Icons.analytics_outlined,     label: 'Reportes',     expanded: e, isSelected: selected == _Seccion.reportes,      onTap: () => onSelect(_Seccion.reportes)),
 
           // ── CONTROL ────────────────────────────────────────────────
           const Spacer(),
-          const _GroupLabel('CTRL'),
-          _NavItem(
-            icon: Icons.warning_amber_outlined,
-            label: 'Alertas',
-            badge: alertasCount > 0 ? alertasCount : null,
-            isSelected: selected == _Seccion.alertas,
-            onTap: () => onSelect(_Seccion.alertas),
-          ),
-          _NavItem(
-            icon: Icons.fact_check_outlined,
-            label: 'Auditoría',
-            isSelected: selected == _Seccion.auditoria,
-            onTap: () => onSelect(_Seccion.auditoria),
-          ),
-          _NavItem(
-            icon: Icons.history_outlined,
-            label: 'Historial',
-            isSelected: selected == _Seccion.historialViajes,
-            onTap: () => onSelect(_Seccion.historialViajes),
-          ),
+          _GroupLabel('CTRL', expanded: e),
+          _NavItem(icon: Icons.warning_amber_outlined,  label: 'Alertas',   expanded: e, isSelected: selected == _Seccion.alertas,       badge: alertasCount > 0 ? alertasCount : null, onTap: () => onSelect(_Seccion.alertas)),
+          _NavItem(icon: Icons.fact_check_outlined,     label: 'Auditoría', expanded: e, isSelected: selected == _Seccion.auditoria,     onTap: () => onSelect(_Seccion.auditoria)),
+          _NavItem(icon: Icons.history_outlined,        label: 'Historial', expanded: e, isSelected: selected == _Seccion.historialViajes, onTap: () => onSelect(_Seccion.historialViajes)),
 
           // ── ADMIN ──────────────────────────────────────────────────
           const Spacer(),
           if (esAdmin) ...[
-            const _GroupLabel('ADM'),
-            _NavItem(
-              icon: Icons.manage_accounts_outlined,
-              label: 'Usuarios',
-              isSelected: selected == _Seccion.usuarios,
-              onTap: () => onSelect(_Seccion.usuarios),
-            ),
+            _GroupLabel('ADM', expanded: e),
+            _NavItem(icon: Icons.manage_accounts_outlined, label: 'Usuarios', expanded: e, isSelected: selected == _Seccion.usuarios, onTap: () => onSelect(_Seccion.usuarios)),
           ],
-          const SizedBox(height: GloboSpacing.lg),
+          const SizedBox(height: GloboSpacing.sm),
           const Divider(color: Colors.white24, height: GloboSpacing.md),
           Consumer(
             builder: (context, ref, _) {
               return _NavItem(
                 icon: Icons.logout,
                 label: 'Salir',
-                onTap: () {
-                  ref.read(demoUserProvider.notifier).state = null;
-                },
+                expanded: e,
+                onTap: () => ref.read(demoUserProvider.notifier).state = null,
               );
             },
           ),
@@ -267,6 +294,7 @@ class _NavItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool isSelected;
+  final bool expanded;
   final int? badge;
   final VoidCallback? onTap;
 
@@ -274,12 +302,67 @@ class _NavItem extends StatelessWidget {
     required this.icon,
     required this.label,
     this.isSelected = false,
+    this.expanded = false,
     this.badge,
     this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final decoration = BoxDecoration(
+      color: isSelected ? Colors.white.withAlpha(20) : Colors.transparent,
+      border: isSelected
+          ? const Border(left: BorderSide(color: GloboColors.accentGlow, width: 3))
+          : null,
+    );
+    final iconWidget = Icon(
+      icon,
+      color: isSelected ? Colors.white : Colors.white54,
+      size: 22,
+    );
+
+    if (expanded) {
+      return Tooltip(
+        message: '',
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            height: 44,
+            decoration: decoration,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    iconWidget,
+                    if (badge != null)
+                      Positioned(
+                        top: -4,
+                        right: -8,
+                        child: _BadgeWidget(badge!),
+                      ),
+                  ],
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      color: isSelected ? Colors.white : Colors.white70,
+                      fontSize: 13,
+                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Tooltip(
       message: label,
       preferBelow: false,
@@ -287,49 +370,46 @@ class _NavItem extends StatelessWidget {
         onTap: onTap,
         child: Container(
           width: 72,
-          height: 56,
-          decoration: BoxDecoration(
-            color: isSelected
-                ? Colors.white.withAlpha(20)
-                : Colors.transparent,
-            border: isSelected
-                ? const Border(
-                    left: BorderSide(
-                        color: GloboColors.accentGlow, width: 3))
-                : null,
-          ),
+          height: 52,
+          decoration: decoration,
           child: Stack(
             alignment: Alignment.center,
             children: [
-              Icon(
-                icon,
-                color: isSelected ? Colors.white : Colors.white54,
-                size: 22,
-              ),
+              iconWidget,
               if (badge != null)
                 Positioned(
                   top: 8,
                   right: 10,
-                  child: Container(
-                    width: 16,
-                    height: 16,
-                    decoration: const BoxDecoration(
-                      color: GloboColors.error,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: Text(
-                        badge! > 9 ? '9+' : '$badge',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
+                  child: _BadgeWidget(badge!),
                 ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BadgeWidget extends StatelessWidget {
+  final int count;
+  const _BadgeWidget(this.count);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 16,
+      height: 16,
+      decoration: const BoxDecoration(
+        color: GloboColors.error,
+        shape: BoxShape.circle,
+      ),
+      child: Center(
+        child: Text(
+          count > 9 ? '9+' : '$count',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
           ),
         ),
       ),
@@ -374,12 +454,8 @@ class _TopBar extends ConsumerWidget {
             color: GloboColors.estadoTransito,
           ),
           const SizedBox(width: GloboSpacing.sm),
-          if (metrics.alertasActivas > 0)
-            _MetricChip(
-              icon: Icons.warning_amber,
-              label: '${metrics.alertasActivas} alertas',
-              color: GloboColors.error,
-            ),
+          const SizedBox(width: GloboSpacing.sm),
+          const NotificationCenterWidget(),
           if (metrics.viajesBanderaRoja > 0) ...[
             const SizedBox(width: GloboSpacing.sm),
             _MetricChip(
@@ -468,10 +544,31 @@ class _DateTimeDisplay extends StatelessWidget {
 
 class _GroupLabel extends StatelessWidget {
   final String label;
-  const _GroupLabel(this.label);
+  final bool expanded;
+  const _GroupLabel(this.label, {this.expanded = false});
 
   @override
   Widget build(BuildContext context) {
+    if (expanded) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+        child: Row(
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white38,
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.5,
+              ),
+            ),
+            const SizedBox(width: 6),
+            const Expanded(child: Divider(color: Colors.white12, height: 1)),
+          ],
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(
         vertical: GloboSpacing.xs,

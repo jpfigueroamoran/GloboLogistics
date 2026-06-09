@@ -9,48 +9,50 @@ class DemoLoginPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
-      backgroundColor: GloboColors.backgroundSecondary,
-      body: Center(
-        child: Container(
-          width: 400,
-          padding: const EdgeInsets.all(GloboSpacing.xl),
-          decoration: BoxDecoration(
-            color: GloboColors.surface,
-            borderRadius: GloboRadius.cardRadius,
-            boxShadow: const [
-              BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 4)),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.hub, size: 64, color: GloboColors.primary),
-              const SizedBox(height: GloboSpacing.md),
-              Text('Globo Logistics', style: GloboTypography.headlineLarge),
-              Text('DEMO MODE', style: GloboTypography.labelSmall.copyWith(color: GloboColors.accentGlow, letterSpacing: 2)),
-              const SizedBox(height: GloboSpacing.xl),
-              
-              _LoginButton(
-                icon: Icons.local_shipping,
-                label: 'Ingresar como Operador',
-                color: GloboColors.estadoTransito,
-                onTap: () => ref.read(demoUserProvider.notifier).state = operadorDemo,
-              ),
-              const SizedBox(height: GloboSpacing.md),
-              _LoginButton(
-                icon: Icons.dashboard,
-                label: 'Ingresar como Supervisor',
-                color: GloboColors.primary,
-                onTap: () => ref.read(demoUserProvider.notifier).state = supervisorDemo,
-              ),
-              const SizedBox(height: GloboSpacing.md),
-              _LoginButton(
-                icon: Icons.admin_panel_settings,
-                label: 'Ingresar como Administrador',
-                color: GloboColors.accentBright,
-                onTap: () => ref.read(demoUserProvider.notifier).state = adminDemo,
-              ),
-            ],
+      body: SingleChildScrollView(
+        child: Center(
+          child: Container(
+            margin: const EdgeInsets.symmetric(vertical: GloboSpacing.xl),
+            width: 400,
+            padding: const EdgeInsets.all(GloboSpacing.xl),
+            decoration: BoxDecoration(
+              color: GloboColors.surface,
+              borderRadius: GloboRadius.cardRadius,
+              boxShadow: const [
+                BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 4)),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.hub, size: 64, color: GloboColors.primary),
+                const SizedBox(height: GloboSpacing.md),
+                Text('Globo Logistics', style: GloboTypography.headlineLarge),
+                Text('DEMO MODE', style: GloboTypography.labelSmall.copyWith(color: GloboColors.accentGlow, letterSpacing: 2)),
+                const SizedBox(height: GloboSpacing.xl),
+                
+                _LoginButton(
+                  icon: Icons.local_shipping,
+                  label: 'Ingresar como Operador',
+                  color: GloboColors.estadoTransito,
+                  onTap: () => ref.read(demoUserProvider.notifier).state = operadorDemo,
+                ),
+                const SizedBox(height: GloboSpacing.md),
+                _LoginButton(
+                  icon: Icons.dashboard,
+                  label: 'Ingresar como Supervisor',
+                  color: GloboColors.primary,
+                  onTap: () => ref.read(demoUserProvider.notifier).state = supervisorDemo,
+                ),
+                const SizedBox(height: GloboSpacing.md),
+                _LoginButton(
+                  icon: Icons.admin_panel_settings,
+                  label: 'Ingresar como Administrador',
+                  color: GloboColors.accentBright,
+                  onTap: () => ref.read(demoUserProvider.notifier).state = adminDemo,
+                ),
+              ],
+            ),
           ),
         ),
       ),

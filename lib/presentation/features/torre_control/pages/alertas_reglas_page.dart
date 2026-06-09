@@ -131,7 +131,7 @@ class _ReglaRow extends ConsumerWidget {
         decoration: BoxDecoration(
           color: regla.activa
               ? GloboColors.primary.withAlpha(20)
-              : GloboColors.backgroundSecondary,
+              : Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: GloboRadius.cardRadius,
         ),
         child: Icon(

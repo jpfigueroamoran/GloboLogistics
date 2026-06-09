@@ -6,14 +6,29 @@ import 'package:get_it/get_it.dart';
 import 'core/network/connectivity_service.dart';
 import 'core/services/storage_service.dart';
 import 'data/datasources/local/local_queue_datasource.dart';
+import 'data/datasources/remote/activo_fijo_firestore_datasource.dart';
 import 'data/datasources/remote/cliente_firestore_datasource.dart';
+import 'data/datasources/remote/factura_cliente_firestore_datasource.dart';
+import 'data/datasources/remote/factura_proveedor_firestore_datasource.dart';
+import 'data/datasources/remote/inventario_firestore_datasource.dart';
 import 'data/datasources/remote/firestore_datasource.dart';
+import 'data/datasources/remote/poliza_seguro_firestore_datasource.dart';
+import 'data/repositories/activo_fijo_repository_impl.dart';
 import 'data/repositories/actividad_repository_impl.dart';
 import 'data/repositories/cliente_repository_impl.dart';
+import 'data/repositories/factura_cliente_repository_impl.dart';
+import 'data/repositories/factura_proveedor_repository_impl.dart';
+import 'data/repositories/inventario_repository_impl.dart';
+import 'data/repositories/poliza_seguro_repository_impl.dart';
 import 'data/repositories/seguridad_repository_impl.dart';
 import 'data/repositories/viaje_repository_impl.dart';
+import 'domain/repositories/i_activo_fijo_repository.dart';
 import 'domain/repositories/i_actividad_repository.dart';
 import 'domain/repositories/i_cliente_repository.dart';
+import 'domain/repositories/i_factura_cliente_repository.dart';
+import 'domain/repositories/i_factura_proveedor_repository.dart';
+import 'domain/repositories/i_inventario_repository.dart';
+import 'domain/repositories/i_poliza_seguro_repository.dart';
 import 'domain/repositories/i_seguridad_repository.dart';
 import 'domain/repositories/i_viaje_repository.dart';
 import 'domain/usecases/actividad/sync_actividades_usecase.dart';
@@ -39,6 +54,21 @@ Future<void> initDependencies() async {
   sl.registerLazySingleton<ClienteFirestoreDatasource>(
       () => ClienteFirestoreDatasource(sl()));
 
+  sl.registerLazySingleton<ActivoFijoFirestoreDatasource>(
+      () => ActivoFijoFirestoreDatasource(sl()));
+
+  sl.registerLazySingleton<PolizaSeguroFirestoreDatasource>(
+      () => PolizaSeguroFirestoreDatasource(sl()));
+
+  sl.registerLazySingleton<FacturaClienteFirestoreDatasource>(
+      () => FacturaClienteFirestoreDatasource(sl()));
+
+  sl.registerLazySingleton<FacturaProveedorFirestoreDatasource>(
+      () => FacturaProveedorFirestoreDatasource(sl()));
+
+  sl.registerLazySingleton<InventarioFirestoreDatasource>(
+      () => InventarioFirestoreDatasource(sl()));
+
   final localQueue = LocalQueueDatasource();
   await localQueue.init();
   sl.registerSingleton<LocalQueueDatasource>(localQueue);
@@ -49,6 +79,21 @@ Future<void> initDependencies() async {
 
   sl.registerLazySingleton<IClienteRepository>(
       () => ClienteRepositoryImpl(sl()));
+
+  sl.registerLazySingleton<IActivoFijoRepository>(
+      () => ActivoFijoRepositoryImpl(sl()));
+
+  sl.registerLazySingleton<IPolizaSeguroRepository>(
+      () => PolizaSeguroRepositoryImpl(sl()));
+
+  sl.registerLazySingleton<IFacturaClienteRepository>(
+      () => FacturaClienteRepositoryImpl(sl()));
+
+  sl.registerLazySingleton<IFacturaProveedorRepository>(
+      () => FacturaProveedorRepositoryImpl(sl()));
+
+  sl.registerLazySingleton<IInventarioRepository>(
+      () => InventarioRepositoryImpl(sl()));
 
   sl.registerLazySingleton<IActividadRepository>(
       () => ActividadRepositoryImpl(sl(), sl(), sl()));

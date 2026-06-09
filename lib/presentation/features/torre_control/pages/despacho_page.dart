@@ -427,7 +427,7 @@ class _AsignacionPanel extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: GloboSpacing.sm),
               decoration: BoxDecoration(
-                color: GloboColors.backgroundSecondary,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 borderRadius: GloboRadius.buttonRadius,
                 border: Border.all(color: GloboColors.divider),
               ),
@@ -512,7 +512,7 @@ class _AsignacionSlot extends StatelessWidget {
       decoration: BoxDecoration(
         color: hasValue
             ? GloboColors.primary.withAlpha(12)
-            : GloboColors.backgroundSecondary,
+            : Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: GloboRadius.cardRadius,
         border: Border.all(
           color: hasValue

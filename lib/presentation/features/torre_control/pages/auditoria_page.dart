@@ -13,9 +13,7 @@ class AuditoriaPage extends ConsumerWidget {
     final viajesSP = ref.watch(viajesActivosProvider);
 
     return Scaffold(
-      backgroundColor: GloboColors.backgroundSecondary,
       appBar: AppBar(
-        backgroundColor: GloboColors.surface,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -299,7 +297,7 @@ class _VarianzaBar extends StatelessWidget {
             Container(
               height: 6,
               decoration: BoxDecoration(
-                color: GloboColors.backgroundTertiary,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 borderRadius:
                     const BorderRadius.all(Radius.circular(3)),
               ),

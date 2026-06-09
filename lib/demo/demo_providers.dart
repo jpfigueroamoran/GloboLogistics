@@ -3,11 +3,22 @@ import 'package:dartz/dartz.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../core/errors/failures.dart';
+import '../domain/entities/activo_fijo.dart';
 import '../domain/entities/alerta_seguridad.dart';
 import '../domain/entities/cliente.dart';
+import '../domain/entities/factura_cliente.dart';
+import '../domain/entities/factura_proveedor.dart';
+import '../domain/entities/item_inventario.dart';
+import '../domain/entities/movimiento_inventario.dart';
+import '../domain/entities/poliza_seguro.dart';
 import '../domain/entities/usuario_globo.dart';
 import '../domain/entities/viaje.dart';
+import '../domain/repositories/i_activo_fijo_repository.dart';
 import '../domain/repositories/i_cliente_repository.dart';
+import '../domain/repositories/i_factura_cliente_repository.dart';
+import '../domain/repositories/i_factura_proveedor_repository.dart';
+import '../domain/repositories/i_inventario_repository.dart';
+import '../domain/repositories/i_poliza_seguro_repository.dart';
 import '../domain/repositories/i_seguridad_repository.dart';
 import '../domain/repositories/i_viaje_repository.dart';
 import '../domain/usecases/seguridad/trigger_sos_usecase.dart';
@@ -18,8 +29,15 @@ import '../presentation/features/operador/providers/iniciar_viaje_provider.dart'
 import '../presentation/features/operador/providers/operador_provider.dart';
 import '../presentation/features/operador/providers/sos_provider.dart';
 import '../presentation/app/app.dart';
+import '../presentation/features/torre_control/providers/activo_fijo_provider.dart';
 import '../presentation/features/torre_control/providers/dashboard_provider.dart';
+import '../presentation/features/torre_control/providers/factura_cliente_provider.dart';
+import '../presentation/features/torre_control/providers/factura_proveedor_provider.dart';
+import '../presentation/features/torre_control/providers/inventario_provider.dart';
+import '../presentation/features/torre_control/providers/poliza_seguro_provider.dart';
 import '../presentation/features/torre_control/providers/unidades_provider.dart';
+import '../presentation/features/torre_control/providers/documentos_provider.dart';
+import '../domain/entities/documento_vencimiento.dart';
 import '../presentation/features/torre_control/widgets/alerta_panel_widget.dart';
 import '../presentation/features/torre_control/pages/dashboard_page.dart';
 import '../presentation/features/torre_control/pages/auditoria_page.dart';
@@ -237,6 +255,143 @@ class _DemoClienteRepository implements IClienteRepository {
 
 final _demoClienteRepo = _DemoClienteRepository();
 
+// ── Stub de activos fijos para demo ───────────────────────────────────────────
+
+class _DemoActivoFijoRepository implements IActivoFijoRepository {
+  @override
+  Stream<List<ActivoFijo>> watchActivosFijos() =>
+      Stream.value(DemoData.activosFijos);
+
+  @override
+  Future<Either<Failure, String>> crearActivo(ActivoFijo activo) async =>
+      Right(activo.id);
+
+  @override
+  Future<Either<Failure, Unit>> actualizarActivo(ActivoFijo activo) async =>
+      const Right(unit);
+
+  @override
+  Future<Either<Failure, Unit>> eliminarActivo(String id) async =>
+      const Right(unit);
+}
+
+// ── Stub de facturas de clientes para demo ────────────────────────────────────
+
+class _DemoFacturaClienteRepository implements IFacturaClienteRepository {
+  @override
+  Stream<List<FacturaCliente>> watchFacturas() =>
+      Stream.value(DemoData.facturas);
+
+  @override
+  Future<Either<Failure, String>> crearFactura(FacturaCliente factura) async =>
+      Right(factura.id);
+
+  @override
+  Future<Either<Failure, Unit>> registrarCobro(
+          String facturaId, double monto, DateTime fecha) async =>
+      const Right(unit);
+
+  @override
+  Future<Either<Failure, Unit>> cancelarFactura(String facturaId) async =>
+      const Right(unit);
+
+  @override
+  Future<Either<Failure, Unit>> registrarCartaPorte(
+          String facturaId, String cartaPorteUuid) async =>
+      const Right(unit);
+}
+
+// ── Stub de facturas de proveedores para demo ─────────────────────────────────
+
+final _demoFacturaProveedorRepo = _DemoFacturaProveedorRepository();
+
+class _DemoFacturaProveedorRepository implements IFacturaProveedorRepository {
+  final _controller = StreamController<List<FacturaProveedor>>.broadcast();
+  List<FacturaProveedor> _facturas = List.of(DemoData.facturasProveedor);
+
+  _DemoFacturaProveedorRepository() {
+    Future.microtask(() => _controller.add(_facturas));
+  }
+
+  @override
+  Stream<List<FacturaProveedor>> watchFacturas() => _controller.stream;
+
+  @override
+  Future<Either<Failure, String>> crearFactura(FacturaProveedor factura) async {
+    _facturas = [factura, ..._facturas];
+    _controller.add(_facturas);
+    return Right(factura.id);
+  }
+
+  @override
+  Future<Either<Failure, Unit>> registrarPago(
+          String facturaId, double monto, DateTime fecha) async {
+    _facturas = _facturas.map((f) {
+      if (f.id == facturaId) {
+        return FacturaProveedor(
+          id: f.id,
+          proveedorId: f.proveedorId,
+          proveedorNombre: f.proveedorNombre,
+          tipoProveedor: f.tipoProveedor,
+          numeroFactura: f.numeroFactura,
+          fechaEmision: f.fechaEmision,
+          fechaVencimiento: f.fechaVencimiento,
+          monto: f.monto,
+          montoPagado: monto,
+          estatus: EstatusFacturaProveedor.pagada,
+          fechaPago: fecha,
+          viajeId: f.viajeId,
+          unidadId: f.unidadId,
+        );
+      }
+      return f;
+    }).toList();
+    _controller.add(_facturas);
+    return const Right(unit);
+  }
+
+  @override
+  Future<Either<Failure, Unit>> cancelarFactura(String facturaId) async =>
+      const Right(unit);
+}
+
+// ── Stub de inventario para demo ──────────────────────────────────────────────
+
+class _DemoInventarioRepository implements IInventarioRepository {
+  @override
+  Stream<List<ItemInventario>> watchItems() =>
+      Stream.value(DemoData.itemsInventario);
+
+  @override
+  Future<Either<Failure, Unit>> actualizarStock(
+          String itemId, double nuevoStock) async =>
+      const Right(unit);
+
+  @override
+  Future<Either<Failure, String>> registrarMovimiento(
+          MovimientoInventario movimiento) async =>
+      Right(movimiento.id);
+}
+
+// ── Stub de pólizas de seguro para demo ───────────────────────────────────────
+
+class _DemoPolizaSeguroRepository implements IPolizaSeguroRepository {
+  @override
+  Stream<List<PolizaSeguro>> watchPolizas() =>
+      Stream.value(DemoData.polizas);
+
+  @override
+  Future<Either<Failure, String>> crearPoliza(PolizaSeguro poliza) async =>
+      Right(poliza.id);
+
+  @override
+  Future<Either<Failure, Unit>> actualizarPoliza(PolizaSeguro poliza) async =>
+      const Right(unit);
+
+  @override
+  Future<Either<Failure, Unit>> eliminarPoliza(String id) async =>
+      const Right(unit);
+}
 
 // ── Usuarios mock y Provider de Sesión ──────────────────────────────────────
 
@@ -318,6 +473,36 @@ List<Override> get demoOverrides => [
       ),
       iniciarViajeProvider.overrideWith(
         (_) => IniciarViajeNotifier(_demoViajeRepo),
+      ),
+      activosFijosProvider.overrideWith(
+        (_) => _DemoActivoFijoRepository().watchActivosFijos(),
+      ),
+      polizasProvider.overrideWith(
+        (_) => _DemoPolizaSeguroRepository().watchPolizas(),
+      ),
+      facturasProvider.overrideWith(
+        (_) => _DemoFacturaClienteRepository().watchFacturas(),
+      ),
+      registrarCartaPorteProvider.overrideWithValue(
+        (_, __) async => const Right(unit),
+      ),
+      facturasProveedorProvider.overrideWith(
+        (_) => _demoFacturaProveedorRepo.watchFacturas(),
+      ),
+      crearFacturaProveedorProvider.overrideWith(
+        (_) => _demoFacturaProveedorRepo.crearFactura,
+      ),
+      inventarioProvider.overrideWith(
+        (_) => _DemoInventarioRepository().watchItems(),
+      ),
+      viajesCompletadosProvider.overrideWith(
+        (_) => _demoViajeRepo.watchViajesCompletados(),
+      ),
+      alertasActivasStreamProvider.overrideWith(
+        (_) => _DemoSeguridadRepository().watchAlertasActivas(),
+      ),
+      documentosProvider.overrideWith(
+        (_) => Stream.value(<DocumentoVencimiento>[]),
       ),
     ];
 

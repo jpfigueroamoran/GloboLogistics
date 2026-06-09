@@ -63,17 +63,14 @@ class _CargarDocumentoDialogState extends ConsumerState<CargarDocumentoDialog> {
 
       // 2. Guardar en Firestore
       final remote = sl<FirestoreDatasource>();
-      final doc = DocumentoVencimiento(
-        id: '',
-        entidadId: _entidadId,
-        nombreEntidad: _nombreEntidad,
-        tipo: _tipo,
-        fechaVencimiento: _fechaVencimiento,
-        esDocumentoDeUnidad: _esUnidad,
-        urlArchivo: url,
-      );
-      
-      await remote.crearDocumento(doc.toFirestore());
+      await remote.crearDocumento({
+        'entidad_id':        _entidadId,
+        'nombre_entidad':    _nombreEntidad,
+        'tipo':              _tipo.name,
+        'fecha_vencimiento': _fechaVencimiento,
+        'es_unidad':         _esUnidad,
+        'url_archivo': url,
+      });
 
       if (mounted) {
         Navigator.of(context).pop();

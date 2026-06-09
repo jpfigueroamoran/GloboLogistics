@@ -31,31 +31,6 @@ class DocumentoVencimiento extends Equatable {
     this.urlArchivo,
   });
 
-  factory DocumentoVencimiento.fromFirestore(dynamic doc) {
-    final data = doc.data() as Map<String, dynamic>;
-    final f = data['fecha_vencimiento'];
-    return DocumentoVencimiento(
-      id: doc.id,
-      entidadId: data['entidad_id'] ?? '',
-      nombreEntidad: data['nombre_entidad'] ?? '',
-      tipo: TipoDocumento.values.firstWhere((e) => e.name == data['tipo'], orElse: () => TipoDocumento.licenciaConducir),
-      fechaVencimiento: f != null ? (f as dynamic).toDate() : DateTime.now(),
-      esDocumentoDeUnidad: data['es_unidad'] ?? false,
-      urlArchivo: data['url_archivo'],
-    );
-  }
-
-  Map<String, dynamic> toFirestore() {
-    return {
-      'entidad_id': entidadId,
-      'nombre_entidad': nombreEntidad,
-      'tipo': tipo.name,
-      'fecha_vencimiento': fechaVencimiento,
-      'es_unidad': esDocumentoDeUnidad,
-      'url_archivo': urlArchivo,
-    };
-  }
-
   int diasRestantes(DateTime ahora) =>
       fechaVencimiento.difference(ahora).inDays;
 

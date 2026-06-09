@@ -2,10 +2,12 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'core/services/fcm_service.dart';
 import 'firebase_options.dart';
 import 'injection_container.dart';
 import 'presentation/app/app.dart';
+import 'demo/demo_providers.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,10 +30,12 @@ void main() async {
   );
   await initDependencies();
   await FcmService.init();
+  await initializeDateFormatting('es_MX', null);
 
   runApp(
-    const ProviderScope(
-      child: GloboApp(),
+    ProviderScope(
+      overrides: demoOverrides,
+      child: const GloboApp(),
     ),
   );
 }

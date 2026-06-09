@@ -92,7 +92,8 @@ class SeguridadRepositoryImpl implements ISeguridadRepository {
         orElse: () => EstadoAlerta.activa,
       ),
       atendidaPor: data['atendida_por'] as String?,
-      notas: data['notas'] as String?,
+      notas:       data['notas'] as String?,
+      metadata:    Map<String, dynamic>.from(data['metadata'] as Map? ?? {}),
     );
   }
 }

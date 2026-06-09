@@ -48,7 +48,6 @@ class _IniciarViajePageState extends ConsumerState<IniciarViajePage> {
     });
 
     return Scaffold(
-      backgroundColor: GloboColors.backgroundSecondary,
       appBar: AppBar(
         backgroundColor: GloboColors.primary,
         leading: BackButton(

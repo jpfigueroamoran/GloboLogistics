@@ -92,9 +92,9 @@ class _UsuariosTable extends ConsumerWidget {
           Container(
             padding: const EdgeInsets.symmetric(
                 horizontal: GloboSpacing.md, vertical: GloboSpacing.sm),
-            decoration: const BoxDecoration(
-              color: GloboColors.backgroundSecondary,
-              borderRadius: BorderRadius.only(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              borderRadius: const BorderRadius.only(
                 topLeft:  Radius.circular(GloboRadius.md),
                 topRight: Radius.circular(GloboRadius.md),
               ),

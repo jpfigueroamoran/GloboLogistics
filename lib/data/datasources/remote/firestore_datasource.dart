@@ -133,6 +133,17 @@ class FirestoreDatasource {
     });
   }
 
+  Future<void> setTcoViaje(
+      String viajeId, Map<String, dynamic> tcoMap) async {
+    await _db
+        .collection(AppConstants.colViajes)
+        .doc(viajeId)
+        .update({
+      'tco':        tcoMap,
+      'updated_at': fs.FieldValue.serverTimestamp(),
+    });
+  }
+
   Future<void> actualizarTcoViaje(
       String viajeId, double costoAdicional, String tipoCosto) async {
     final ref = _db.collection(AppConstants.colViajes).doc(viajeId);

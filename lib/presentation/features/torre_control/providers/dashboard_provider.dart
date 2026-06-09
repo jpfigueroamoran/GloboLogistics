@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../domain/entities/alerta_seguridad.dart';
 import '../../../../domain/entities/viaje.dart';
+import '../../../../domain/repositories/i_seguridad_repository.dart';
 import '../../../../injection_container.dart';
 import '../../../../domain/repositories/i_viaje_repository.dart';
 
@@ -8,8 +10,8 @@ final viajesActivosProvider =
   return sl<IViajeRepository>().watchViajesActivos();
 });
 
-final alertasActivasCountProvider = Provider<int>((ref) {
-  return 0;
+final alertasActivasStreamProvider = StreamProvider<List<AlertaSeguridad>>((ref) {
+  return sl<ISeguridadRepository>().watchAlertasActivas();
 });
 
 final viajesCompletadosProvider = StreamProvider<List<Viaje>>((ref) {
@@ -33,15 +35,16 @@ class DashboardMetrics {
 }
 
 final dashboardMetricsProvider = Provider<DashboardMetrics>((ref) {
-  final viajes = ref.watch(viajesActivosProvider).valueOrNull ?? [];
+  final viajes  = ref.watch(viajesActivosProvider).valueOrNull ?? [];
+  final alertas = ref.watch(alertasActivasStreamProvider).valueOrNull ?? [];
 
   return DashboardMetrics(
-    viajesEnCurso:
-        viajes.where((v) => v.estado == EstadoViaje.enCurso).length,
+    viajesEnCurso:     viajes.where((v) => v.estado == EstadoViaje.enCurso).length,
     viajesBanderaRoja: viajes.where((v) => v.tieneBanderaRoja).length,
-    tcoPromedioDia: viajes.isEmpty
+    alertasActivas:    alertas.where((a) => a.estado == EstadoAlerta.activa).length,
+    unidadesActivas:   viajes.map((v) => v.unidadId).toSet().length,
+    tcoPromedioDia:    viajes.isEmpty
         ? 0
-        : viajes.map((v) => v.tco.total).reduce((a, b) => a + b) /
-            viajes.length,
+        : viajes.map((v) => v.tco.total).reduce((a, b) => a + b) / viajes.length,
   );
 });

@@ -273,9 +273,10 @@ class _MantenimientoShimmer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Shimmer.fromColors(
-      baseColor: GloboColors.backgroundTertiary,
-      highlightColor: GloboColors.backgroundSecondary,
+      baseColor: isDark ? GloboColors.darkBackgroundTertiary : GloboColors.backgroundTertiary,
+      highlightColor: isDark ? GloboColors.darkSurfaceElevated : GloboColors.backgroundSecondary,
       child: Padding(
         padding: const EdgeInsets.all(GloboSpacing.md),
         child: GridView.builder(

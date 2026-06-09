@@ -1,16 +1,13 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import '../../../../core/constants/theme_constants.dart';
 import '../../../../domain/entities/unidad.dart';
 import '../providers/unidades_provider.dart';
 
 // Centro geográfico de México
-const _mexicoCenter = CameraPosition(
-  target: LatLng(23.6345, -102.5528),
-  zoom: 5.2,
-);
+const _mexicoCenter = LatLng(23.6345, -102.5528);
 
 class FleetMapWidget extends ConsumerStatefulWidget {
   const FleetMapWidget({super.key});
@@ -20,24 +17,11 @@ class FleetMapWidget extends ConsumerStatefulWidget {
 }
 
 class _FleetMapWidgetState extends ConsumerState<FleetMapWidget> {
-  GoogleMapController? _controller;
+  final MapController _mapController = MapController();
   String? _selectedUnidadId;
 
   @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    // Google Maps no soporta Windows/macOS/Linux en google_maps_flutter
-    if (!kIsWeb &&
-        defaultTargetPlatform != TargetPlatform.android &&
-        defaultTargetPlatform != TargetPlatform.iOS) {
-      return _DesktopMapFallback(ref: ref);
-    }
-
     final unidadesSP = ref.watch(unidadesActivasProvider);
 
     return Container(
@@ -53,12 +37,11 @@ class _FleetMapWidgetState extends ConsumerState<FleetMapWidget> {
             unidadesSP.when(
               loading: () => _LoadingMap(),
               error: (e, _) => _MapError(message: e.toString()),
-              data: (unidades) => _GoogleMapView(
+              data: (unidades) => _FlutterMapView(
                 unidades: unidades,
                 selectedId: _selectedUnidadId,
-                onMapCreated: (c) => _controller = c,
-                onMarkerTap: (id) =>
-                    setState(() => _selectedUnidadId = id),
+                mapController: _mapController,
+                onMarkerTap: (id) => setState(() => _selectedUnidadId = id),
               ),
             ),
 
@@ -75,8 +58,7 @@ class _FleetMapWidgetState extends ConsumerState<FleetMapWidget> {
               right: GloboSpacing.sm,
               child: unidadesSP.whenData(
                 (u) => _UnitCountBadge(count: u.length),
-              ).valueOrNull ??
-                  const SizedBox.shrink(),
+              ).valueOrNull ?? const SizedBox.shrink(),
             ),
           ],
         ),
@@ -85,182 +67,101 @@ class _FleetMapWidgetState extends ConsumerState<FleetMapWidget> {
   }
 }
 
-// ── Google Map view ──────────────────────────────────────────────────────────
+// ── Flutter Map view ──────────────────────────────────────────────────────────
 
-class _GoogleMapView extends StatelessWidget {
+class _FlutterMapView extends StatelessWidget {
   final List<Unidad> unidades;
   final String? selectedId;
-  final void Function(GoogleMapController) onMapCreated;
+  final MapController mapController;
   final void Function(String) onMarkerTap;
 
-  const _GoogleMapView({
+  const _FlutterMapView({
     required this.unidades,
     required this.selectedId,
-    required this.onMapCreated,
+    required this.mapController,
     required this.onMarkerTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final markers = <Marker>{};
+    final markers = <Marker>[];
 
     for (final u in unidades) {
       final pos = u.ultimaPosicion;
       if (pos == null) continue;
 
-      final hue = u.estado == EstadoUnidad.activa
-          ? BitmapDescriptor.hueGreen
+      final color = u.estado == EstadoUnidad.activa
+          ? GloboColors.success
           : u.estado == EstadoUnidad.mantenimiento
-              ? BitmapDescriptor.hueOrange
-              : BitmapDescriptor.hueRed;
+              ? GloboColors.warning
+              : GloboColors.error;
 
-      markers.add(Marker(
-        markerId: MarkerId(u.id),
-        position: LatLng(pos.lat, pos.lng),
-        icon: BitmapDescriptor.defaultMarkerWithHue(hue),
-        infoWindow: InfoWindow(
-          title: u.placas,
-          snippet: '${u.modelo} ${u.anio}',
+      final isSelected = u.id == selectedId;
+
+      markers.add(
+        Marker(
+          point: LatLng(pos.lat, pos.lng),
+          width: isSelected ? 180 : 40,
+          height: isSelected ? 80 : 40,
+          alignment: Alignment.topCenter,
+          child: GestureDetector(
+            onTap: () => onMarkerTap(u.id),
+            child: isSelected
+                ? _InfoTooltip(unidad: u, color: color)
+                : Icon(
+                    Icons.location_on,
+                    color: color,
+                    size: 40,
+                    shadows: const [Shadow(blurRadius: 10, color: Colors.black54)],
+                  ),
+          ),
         ),
-        onTap: () => onMarkerTap(u.id),
-      ));
+      );
     }
 
-    return GoogleMap(
-      initialCameraPosition: _mexicoCenter,
-      markers: markers,
-      onMapCreated: onMapCreated,
-      myLocationButtonEnabled: false,
-      zoomControlsEnabled: true,
-      mapToolbarEnabled: false,
-      mapType: MapType.normal,
-      style: _darkMapStyle,
+    return FlutterMap(
+      mapController: mapController,
+      options: MapOptions(
+        initialCenter: _mexicoCenter,
+        initialZoom: 5.2,
+        onTap: (_, __) => onMarkerTap(''), // Deseleccionar al tocar mapa
+      ),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+          subdomains: const ['a', 'b', 'c', 'd'],
+          userAgentPackageName: 'com.globo.logistics',
+        ),
+        MarkerLayer(markers: markers),
+      ],
     );
   }
 }
 
-// ── Fallback para Windows (google_maps_flutter no soporta desktop) ────────────
+// ── Info Tooltip (para marcadores seleccionados) ──────────────────────────────
+class _InfoTooltip extends StatelessWidget {
+  final Unidad unidad;
+  final Color color;
 
-class _DesktopMapFallback extends ConsumerWidget {
-  const _DesktopMapFallback({required this.ref});
-  final WidgetRef ref;
+  const _InfoTooltip({required this.unidad, required this.color});
 
   @override
-  Widget build(BuildContext context, WidgetRef r) {
-    final unidadesSP = r.watch(unidadesActivasProvider);
-
+  Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.all(GloboSpacing.md),
       decoration: BoxDecoration(
-        color: const Color(0xFF0F1923),
-        borderRadius: GloboRadius.cardRadius,
-        border: Border.all(color: GloboColors.divider),
+        color: GloboColors.surface,
+        borderRadius: GloboRadius.buttonRadius,
+        border: Border.all(color: color),
+        boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 10, offset: Offset(0, 4))],
       ),
+      padding: const EdgeInsets.all(GloboSpacing.sm),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Header
-          Container(
-            padding: const EdgeInsets.all(GloboSpacing.md),
-            decoration: const BoxDecoration(
-              border: Border(
-                  bottom: BorderSide(color: GloboColors.divider, width: 0.5)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.map_outlined,
-                    size: 16, color: GloboColors.accentGlow),
-                const SizedBox(width: GloboSpacing.sm),
-                Text(
-                  'Posiciones de Flota',
-                  style: GloboTypography.labelLarge
-                      .copyWith(color: GloboColors.textOnDark),
-                ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: GloboColors.infoLight.withAlpha(20),
-                    borderRadius: GloboRadius.chipRadius,
-                    border: Border.all(
-                        color: GloboColors.accentGlow.withAlpha(60)),
-                  ),
-                  child: Text(
-                    'Mapa disponible en versión Web',
-                    style: GloboTypography.caption
-                        .copyWith(color: GloboColors.accentGlow, fontSize: 10),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Lista de unidades con posición
-          Expanded(
-            child: unidadesSP.when(
-              loading: () => const Center(
-                  child: CircularProgressIndicator(
-                      color: GloboColors.accentGlow)),
-              error: (e, _) => Center(
-                  child: Text(e.toString(),
-                      style: GloboTypography.caption)),
-              data: (unidades) {
-                final conPos =
-                    unidades.where((u) => u.ultimaPosicion != null).toList();
-                if (conPos.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.gps_off,
-                            size: 32, color: GloboColors.steelGray),
-                        const SizedBox(height: GloboSpacing.sm),
-                        Text('Sin posición reportada',
-                            style: GloboTypography.caption),
-                      ],
-                    ),
-                  );
-                }
-                return ListView.separated(
-                  padding: const EdgeInsets.all(GloboSpacing.sm),
-                  itemCount: conPos.length,
-                  separatorBuilder: (_, __) =>
-                      const Divider(height: 0, color: GloboColors.divider),
-                  itemBuilder: (ctx, i) {
-                    final u = conPos[i];
-                    final pos = u.ultimaPosicion!;
-                    final color = u.estado == EstadoUnidad.activa
-                        ? GloboColors.success
-                        : u.estado == EstadoUnidad.mantenimiento
-                            ? GloboColors.warning
-                            : GloboColors.error;
-                    return ListTile(
-                      dense: true,
-                      leading: Container(
-                        width: 8, height: 8,
-                        decoration: BoxDecoration(
-                            color: color, shape: BoxShape.circle),
-                      ),
-                      title: Text(u.placas,
-                          style: GloboTypography.labelLarge
-                              .copyWith(color: GloboColors.textOnDark)),
-                      subtitle: Text(
-                        '${pos.lat.toStringAsFixed(4)}, '
-                        '${pos.lng.toStringAsFixed(4)}',
-                        style: GloboTypography.monoData
-                            .copyWith(fontSize: 11,
-                                color: GloboColors.textOnDarkSecondary),
-                      ),
-                      trailing: Text(
-                        u.modelo,
-                        style: GloboTypography.caption
-                            .copyWith(color: GloboColors.textTertiary),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
+          Text(unidad.placas, style: GloboTypography.labelSmall.copyWith(color: color)),
+          Text('${unidad.modelo} ${unidad.anio}', style: GloboTypography.caption),
+          const SizedBox(height: 4),
+          Icon(Icons.arrow_drop_down, color: GloboColors.steelGray.withAlpha(120)),
         ],
       ),
     );
@@ -303,13 +204,9 @@ class _LegendDot extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-            width: 8, height: 8,
-            decoration:
-                BoxDecoration(color: color, shape: BoxShape.circle)),
+            width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
         const SizedBox(width: 4),
-        Text(label,
-            style: const TextStyle(
-                color: Colors.white, fontSize: 10)),
+        Text(label, style: const TextStyle(color: Colors.white, fontSize: 10)),
       ],
     );
   }
@@ -330,12 +227,9 @@ class _UnitCountBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.local_shipping,
-              size: 12, color: Colors.white70),
+          const Icon(Icons.local_shipping, size: 12, color: Colors.white70),
           const SizedBox(width: 4),
-          Text('$count unidades',
-              style: const TextStyle(
-                  color: Colors.white, fontSize: 11)),
+          Text('$count unidades', style: const TextStyle(color: Colors.white, fontSize: 11)),
         ],
       ),
     );
@@ -363,8 +257,7 @@ class _MapError extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline,
-                  size: 32, color: GloboColors.error),
+              const Icon(Icons.error_outline, size: 32, color: GloboColors.error),
               const SizedBox(height: GloboSpacing.sm),
               Text(message, style: GloboTypography.caption),
             ],
@@ -372,22 +265,3 @@ class _MapError extends StatelessWidget {
         ),
       );
 }
-
-// ── Estilo oscuro del mapa (alineado con la paleta de Globo) ──────────────────
-
-const _darkMapStyle = '''
-[
-  {"elementType":"geometry","stylers":[{"color":"#0f1923"}]},
-  {"elementType":"labels.text.fill","stylers":[{"color":"#8f9eb0"}]},
-  {"elementType":"labels.text.stroke","stylers":[{"color":"#0f1923"}]},
-  {"featureType":"road","elementType":"geometry","stylers":[{"color":"#1b3f6e"}]},
-  {"featureType":"road","elementType":"geometry.stroke","stylers":[{"color":"#0b2545"}]},
-  {"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#1565c0"}]},
-  {"featureType":"water","elementType":"geometry","stylers":[{"color":"#0d2137"}]},
-  {"featureType":"water","elementType":"labels.text.fill","stylers":[{"color":"#42a5f5"}]},
-  {"featureType":"administrative","elementType":"geometry.stroke","stylers":[{"color":"#1b3f6e"}]},
-  {"featureType":"administrative.country","elementType":"labels.text.fill","stylers":[{"color":"#b0c4d8"}]},
-  {"featureType":"poi","elementType":"labels","stylers":[{"visibility":"off"}]},
-  {"featureType":"transit","stylers":[{"visibility":"off"}]}
-]
-''';

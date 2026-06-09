@@ -15,6 +15,7 @@ class UnidadModel extends Unidad {
     super.ultimaActualizacionPosicion,
     required super.odometro,
     required super.capacidadTanqueLitros,
+    super.proximoMantenimientoOdometro,
   });
 
   factory UnidadModel.fromFirestore(fs.DocumentSnapshot doc) {
@@ -45,6 +46,8 @@ class UnidadModel extends Unidad {
       odometro:            (map['odometro'] as num?)?.toDouble() ?? 0,
       capacidadTanqueLitros:
           (map['capacidad_tanque'] as num?)?.toDouble() ?? 0,
+      proximoMantenimientoOdometro:
+          (map['proximo_mantenimiento_odometro'] as num?)?.toDouble(),
     );
   }
 
@@ -65,5 +68,7 @@ class UnidadModel extends Unidad {
             : null,
         'odometro':        odometro,
         'capacidad_tanque': capacidadTanqueLitros,
+        if (proximoMantenimientoOdometro != null)
+          'proximo_mantenimiento_odometro': proximoMantenimientoOdometro,
       };
 }

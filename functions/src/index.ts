@@ -715,6 +715,315 @@ export const actualizarUsuario = onCall(
 );
 
 // ═══════════════════════════════════════════════════════════════════
+// FUNCIÓN 9 — SCHEDULED: Cierre mensual de activos fijos
+// Calcula depreciación mensual de la flota y guarda resumen financiero.
+// Ejecuta el día 1 de cada mes a las 03:00 México.
+// ═══════════════════════════════════════════════════════════════════
+
+export const cierreMensual = onSchedule(
+  { schedule: "0 3 1 * *", timeZone: "America/Mexico_City" },
+  async () => {
+    const now  = new Date();
+    const mes  = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+    logger.info(`Cierre mensual — período: ${mes}`);
+
+    const activosSnap = await db.collection("activos_fijos").get();
+
+    let depreciacionMensual = 0;
+    let valorLibrosTotal    = 0;
+    let activosEnAlerta     = 0;
+
+    for (const doc of activosSnap.docs) {
+      const d                = doc.data();
+      const vidaAnios        = (d.vida_util_anios ?? 10) as number;
+      const costo            = (d.costo_adquisicion ?? 0) as number;
+      const residual         = (d.valor_residual ?? 0) as number;
+      const fechaAdq         = (d.fecha_adquisicion as admin.firestore.Timestamp).toDate();
+
+      const deprAnual        = (costo - residual) / vidaAnios;
+      const deprMensual      = deprAnual / 12;
+      const mesesTranscurridos = Math.min(
+        (now.getFullYear() - fechaAdq.getFullYear()) * 12 +
+          now.getMonth() - fechaAdq.getMonth(),
+        vidaAnios * 12
+      );
+      const vl = Math.max(residual, costo - deprMensual * mesesTranscurridos);
+      const pctDepr = (costo - residual) > 0
+        ? (costo - vl) / (costo - residual)
+        : 1;
+
+      depreciacionMensual += deprMensual;
+      valorLibrosTotal    += vl;
+      if (pctDepr >= 0.8) activosEnAlerta++;
+    }
+
+    await db.collection("resumenes_financieros").doc(mes).set({
+      periodo_id:               mes,
+      depreciacion_mensual_flota: depreciacionMensual,
+      valor_libros_flota:         valorLibrosTotal,
+      activos_en_alerta:          activosEnAlerta,
+      total_activos:              activosSnap.size,
+      generado_at: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    logger.info(
+      `Cierre ${mes} — depr: $${depreciacionMensual.toFixed(2)} | ` +
+      `valor libros: $${valorLibrosTotal.toFixed(2)} | alertas: ${activosEnAlerta}`
+    );
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════
+// FUNCIÓN 10 — TRIGGER: Generar factura al completar viaje
+// Trigger: viaje transiciona a "completado".
+// Lee config/pricing para margen%, genera número GL-YYYY-XXXX y
+// crea documento en facturas_clientes/.
+// ═══════════════════════════════════════════════════════════════════
+
+export const generarFacturaViaje = onDocumentWritten(
+  `${C.COL.viajes}/{viajeId}`,
+  async (event) => {
+    const before = event.data?.before?.data();
+    const after  = event.data?.after?.data();
+
+    // Solo cuando transiciona a completado
+    if (!after || !before) return;
+    if (before.estado === "completado" || after.estado !== "completado") return;
+
+    const viajeId = event.params.viajeId;
+    const COL_FACTURAS = "facturas_clientes";
+    const COL_CONFIG   = "config";
+
+    // ── Idempotencia: verificar que no exista ya una factura ──────────
+    const existente = await db
+      .collection(COL_FACTURAS)
+      .where("viaje_id", "==", viajeId)
+      .limit(1)
+      .get();
+
+    if (!existente.empty) {
+      logger.info(`Factura ya existe para viaje ${viajeId}, omitiendo.`);
+      return;
+    }
+
+    logger.info(`Generando factura para viaje completado: ${viajeId}`);
+
+    // ── Leer configuración de pricing ────────────────────────────────
+    const pricingSnap = await db.collection(COL_CONFIG).doc("pricing").get();
+    const margenPct   = (pricingSnap.data()?.margen_pct ?? 0.15) as number; // default 15%
+
+    // ── Leer datos del viaje ─────────────────────────────────────────
+    const clienteId    = (after.cliente_id    ?? "") as string;
+    const clienteNombre = (after.cliente_nombre ?? "Cliente") as string;
+    const tco          = (after.tco ?? {}) as { total?: number };
+    const tcoTotal     = tco.total ?? 0;
+    const monto        = parseFloat((tcoTotal * (1 + margenPct)).toFixed(2));
+
+    // ── Generar número de factura: GL-YYYY-XXXX (transaccional) ─────
+    const anio       = new Date().getFullYear();
+    const contadorId = `factura_contador_${anio}`;
+
+    const numeroFactura = await db.runTransaction(async (tx) => {
+      const contadorRef = db.collection(COL_CONFIG).doc(contadorId);
+      const contadorSnap = await tx.get(contadorRef);
+      const siguiente = ((contadorSnap.data()?.ultimo ?? 0) as number) + 1;
+      tx.set(contadorRef, { ultimo: siguiente }, { merge: true });
+      return `GL-${anio}-${String(siguiente).padStart(4, "0")}`;
+    });
+
+    // ── Calcular fecha de vencimiento (30 días corridos) ─────────────
+    const fechaEmision     = new Date();
+    const fechaVencimiento = new Date(fechaEmision);
+    fechaVencimiento.setDate(fechaVencimiento.getDate() + 30);
+
+    // ── Crear documento de factura ───────────────────────────────────
+    await db.collection(COL_FACTURAS).add({
+      viaje_id:          viajeId,
+      cliente_id:        clienteId,
+      cliente_nombre:    clienteNombre,
+      numero_factura:    numeroFactura,
+      fecha_emision:     admin.firestore.Timestamp.fromDate(fechaEmision),
+      fecha_vencimiento: admin.firestore.Timestamp.fromDate(fechaVencimiento),
+      monto,
+      monto_cobrado:     null,
+      estatus:           "pendiente",
+      fecha_cobro:       null,
+      carta_porte_uuid:  null,
+      tco_base:          tcoTotal,
+      margen_pct:        margenPct,
+      created_at:        admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    logger.info(
+      `Factura generada — ${numeroFactura}: $${monto.toFixed(2)} MXN (viaje: ${viajeId})`
+    );
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════
+// FUNCIÓN 11 — SCHEDULED: Marcar facturas de proveedores como vencidas
+// Ejecuta diariamente a las 08:00 México.
+// Actualiza facturas_proveedores donde fecha_vencimiento < hoy y estatus=pendiente.
+// ═══════════════════════════════════════════════════════════════════
+
+export const vencimientosCxP = onSchedule(
+  { schedule: "0 8 * * *", timeZone: "America/Mexico_City" },
+  async () => {
+    const ahora   = new Date();
+    const hoy     = admin.firestore.Timestamp.fromDate(ahora);
+
+    const snap = await db
+      .collection("facturas_proveedores")
+      .where("estatus", "==", "pendiente")
+      .where("fecha_vencimiento", "<", hoy)
+      .get();
+
+    if (snap.empty) {
+      logger.info("vencimientosCxP — sin facturas a vencer hoy.");
+      return;
+    }
+
+    const batch = db.batch();
+    for (const doc of snap.docs) {
+      batch.update(doc.ref, {
+        estatus:    "vencida",
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    await batch.commit();
+
+    logger.info(`vencimientosCxP — ${snap.size} factura(s) marcada(s) como vencida.`);
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════
+// FUNCIÓN 12 — TRIGGER: Alerta de stock mínimo
+// Trigger: escritura en inventario/{itemId}.
+// Si stock_actual <= stock_minimo, crea alerta en alertas_seguridad.
+// ═══════════════════════════════════════════════════════════════════
+
+export const alertaStockMinimo = onDocumentWritten(
+  "inventario/{itemId}",
+  async (event) => {
+    const after  = event.data?.after?.data();
+    const before = event.data?.before?.data();
+    if (!after) return;
+
+    const stockActual = (after.stock_actual ?? 0) as number;
+    const stockMinimo = (after.stock_minimo ?? 0) as number;
+    const itemId      = event.params.itemId;
+    const nombre      = (after.nombre ?? itemId) as string;
+
+    if (stockActual > stockMinimo) return;
+
+    // Evitar crear alerta duplicada si ya existe una activa para este ítem
+    const existente = await db
+      .collection(C.COL.alertas)
+      .where("tipo", "==", "stockMinimo")
+      .where("item_id", "==", itemId)
+      .where("estado", "==", "activa")
+      .limit(1)
+      .get();
+
+    if (!existente.empty) {
+      // Actualizar stock en la alerta existente
+      await existente.docs[0].ref.update({
+        "metadata.stock_actual": stockActual,
+        "metadata.stock_minimo": stockMinimo,
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      return;
+    }
+
+    const prevStock = (before?.stock_actual ?? stockActual) as number;
+    if (prevStock <= stockMinimo && stockActual <= stockMinimo) return;
+
+    await db.collection(C.COL.alertas).add({
+      tipo:      "stockMinimo",
+      estado:    "activa",
+      item_id:   itemId,
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      metadata: {
+        nombre_item:   nombre,
+        stock_actual:  stockActual,
+        stock_minimo:  stockMinimo,
+        pct_stock:     stockMinimo > 0
+          ? ((stockActual / stockMinimo) * 100).toFixed(1)
+          : "0",
+      },
+    });
+
+    logger.info(
+      `alertaStockMinimo — ${nombre}: ${stockActual} / ${stockMinimo} (mínimo)`
+    );
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════
+// FUNCIÓN 13 — SCHEDULED: Alerta de Pólizas por Vencer
+// Ejecuta diariamente a las 08:00 México.
+// Crea una alerta si hay pólizas que vencen en 30 días o menos.
+// ═══════════════════════════════════════════════════════════════════
+
+export const vencimientoPolizasSeguro = onSchedule(
+  { schedule: "0 8 * * *", timeZone: "America/Mexico_City" },
+  async () => {
+    const ahora = new Date();
+    // Vencimiento límite: 30 días en el futuro
+    const limite = new Date(ahora);
+    limite.setDate(limite.getDate() + 30);
+    const tsLimite = admin.firestore.Timestamp.fromDate(limite);
+
+    const polizasSnap = await db
+      .collection("polizas_seguro")
+      .where("vigencia_fin", "<=", tsLimite)
+      .get();
+
+    if (polizasSnap.empty) {
+      logger.info("vencimientoPolizasSeguro — sin pólizas por vencer.");
+      return;
+    }
+
+    let alertasGeneradas = 0;
+    for (const doc of polizasSnap.docs) {
+      const polizaId = doc.id;
+      const data = doc.data();
+      const numeroPoliza = (data.numero_poliza ?? "N/A") as string;
+      const unidadId = (data.unidad_id ?? "N/A") as string;
+
+      // Verificar si ya existe una alerta activa para esta póliza
+      const existente = await db
+        .collection(C.COL.alertas)
+        .where("tipo", "==", "polizaPorVencer")
+        .where("poliza_id", "==", polizaId)
+        .where("estado", "==", "activa")
+        .limit(1)
+        .get();
+
+      if (!existente.empty) {
+        continue; // Ya hay una alerta activa
+      }
+
+      await db.collection(C.COL.alertas).add({
+        tipo: "polizaPorVencer",
+        estado: "activa",
+        poliza_id: polizaId,
+        unidad_id: unidadId,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        metadata: {
+          numero_poliza: numeroPoliza,
+          vigencia_fin: data.vigencia_fin,
+        },
+      });
+      alertasGeneradas++;
+    }
+
+    logger.info(`vencimientoPolizasSeguro — ${alertasGeneradas} alerta(s) generada(s) de ${polizasSnap.size} pólizas próximas a vencer o vencidas.`);
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════
 // HELPERS PRIVADOS
 // ═══════════════════════════════════════════════════════════════════
 

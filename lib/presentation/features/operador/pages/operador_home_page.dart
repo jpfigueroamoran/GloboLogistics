@@ -1,11 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/theme_constants.dart';
 import '../../../../domain/entities/actividad_operativa.dart';
+import '../../../../domain/entities/operador_score.dart';
 import '../../../../domain/entities/viaje.dart';
 import '../providers/operador_provider.dart';
-import '../providers/sos_provider.dart';
-import '../widgets/estado_selector_widget.dart';
 import '../widgets/ocr_capture_widget.dart';
 import '../widgets/operador_map_widget.dart';
 import 'iniciar_viaje_page.dart';
@@ -14,6 +14,7 @@ import '../widgets/justificacion_dialog.dart';
 import '../../../../injection_container.dart';
 import '../../../../domain/repositories/i_viaje_repository.dart';
 import '../../../../demo/demo_providers.dart' show demoUserProvider;
+import '../../../../presentation/features/torre_control/providers/operador_score_provider.dart';
 
 import '../widgets/connectivity_sync_listener.dart';
 import '../providers/gps_tracker_provider.dart';
@@ -51,7 +52,6 @@ class _OperadorHomePageState extends ConsumerState<OperadorHomePage> {
 
     return ConnectivitySyncListener(
       child: Scaffold(
-        backgroundColor: GloboColors.backgroundSecondary,
         appBar: _buildAppBar(context, ref, state),
         body: viajeSP.when(
           loading: () => const _LoadingBody(),
@@ -70,12 +70,11 @@ class _OperadorHomePageState extends ConsumerState<OperadorHomePage> {
             );
           },
         ),
-        floatingActionButton: _SosButton(
+        bottomNavigationBar: _QuickActionsBar(
           operadorId: widget.operadorId,
           unidadId:   widget.unidadId,
           viajeId:    state.viajeActivo?.id ?? '',
         ),
-        floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       ),
     );
   }
@@ -274,7 +273,6 @@ class _OperadorBody extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(operadorProvider);
     final esProgramado = viaje?.estado == EstadoViaje.programado;
 
     return SingleChildScrollView(
@@ -282,57 +280,50 @@ class _OperadorBody extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _ScorePersonalCard(operadorId: operadorId),
+          const SizedBox(height: GloboSpacing.md),
           _ViajeInfoCard(
             viaje:      viaje,
             operadorId: operadorId,
             unidadId:   unidadId,
           ),
-          if (esProgramado) ...[
-            const SizedBox(height: GloboSpacing.lg),
+          const SizedBox(height: GloboSpacing.lg),
+          if (esProgramado)
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                icon: const Icon(Icons.check_circle_outline),
-                label: const Text('Aceptar y Comenzar Viaje'),
+                icon: const Icon(Icons.play_circle_fill, size: 28),
+                label: const Text('Comenzar Viaje'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GloboColors.success,
-                  padding: const EdgeInsets.symmetric(vertical: GloboSpacing.lg),
-                  textStyle: GloboTypography.titleMedium.copyWith(fontWeight: FontWeight.bold),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  textStyle: GloboTypography.titleMedium.copyWith(fontWeight: FontWeight.bold, fontSize: 20),
                 ),
                 onPressed: () {
                   ref.read(operadorProvider.notifier).comenzarViajeAsignado(viaje!.id);
                 },
               ),
-            ),
-          ] else if (viaje != null) ...[
-            const SizedBox(height: GloboSpacing.md),
-            EstadoSelectorWidget(
-              estadoActual: state.estadoActual,
-              onEstadoChanged: (nuevo) => ref
-                  .read(operadorProvider.notifier)
-                  .cambiarEstado(nuevo, viaje?.id),
-            ),
-            const SizedBox(height: GloboSpacing.md),
+            )
+          else if (viaje != null) ...[
             if (viaje!.estado == EstadoViaje.enCurso)
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   onPressed: () => _finalizarViaje(context, ref, viaje!),
-                  icon: const Icon(Icons.flag_circle_outlined),
-                  label: const Text('Finalizar Viaje'),
+                  icon: const Icon(Icons.flag_circle_outlined, size: 28),
+                  label: const Text('Finalizar Viaje / Descarga'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: GloboColors.primary,
-                    padding: const EdgeInsets.symmetric(vertical: GloboSpacing.md),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    textStyle: GloboTypography.titleMedium.copyWith(fontWeight: FontWeight.bold, fontSize: 20),
                   ),
                 ),
               ),
-            const SizedBox(height: GloboSpacing.md),
-            OcrCaptureWidget(
-              viajeId:    viaje?.id    ?? '',
-              operadorId: operadorId,
-              unidadId:   unidadId,
-            ),
-            const SizedBox(height: GloboSpacing.md),
+            const SizedBox(height: GloboSpacing.lg),
+            const Text('Navegación Activa', style: TextStyle(fontWeight: FontWeight.bold, color: GloboColors.textTertiary)),
+            const SizedBox(height: GloboSpacing.sm),
             const OperadorMapWidget(),
           ],
           const SizedBox(height: 80),
@@ -395,7 +386,7 @@ class _ViajeInfoCard extends StatelessWidget {
                   Container(
                     width: 40, height: 40,
                     decoration: BoxDecoration(
-                      color: GloboColors.backgroundSecondary,
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
                       borderRadius: GloboRadius.buttonRadius,
                     ),
                     child: const Icon(Icons.no_transfer,
@@ -557,23 +548,24 @@ class _ViajeInfoCard extends StatelessWidget {
                 ],
                 const SizedBox(height: GloboSpacing.md),
                 // Métricas rápidas
-                Row(
-                  mainAxisSize: MainAxisSize.min,
+                Wrap(
+                  spacing: GloboSpacing.sm,
+                  runSpacing: GloboSpacing.sm,
                   children: [
                     _MetricChip(
                       icon:  Icons.local_gas_station_outlined,
                       value: '${viaje!.litrosCargados.toStringAsFixed(0)} L',
                       label: 'cargados',
                     ),
-                    if (viaje!.varianzaCombustible != null) ...[
-                      const SizedBox(width: GloboSpacing.sm),
+                    if (viaje!.varianzaCombustible != null)
                       _MetricChip(
                         icon:    Icons.analytics_outlined,
                         value:   '${(viaje!.varianzaCombustible! * 100).toStringAsFixed(1)}%',
                         label:   'varianza',
                         isAlert: esBandera,
                       ),
-                    ],
+                    if (viaje!.estado == EstadoViaje.enCurso && viaje!.fechaInicio != null)
+                      _TripElapsedTimer(fechaInicio: viaje!.fechaInicio!),
                   ],
                 ),
               ],
@@ -717,7 +709,7 @@ class _MetricChip extends StatelessWidget {
       decoration: BoxDecoration(
         color: isAlert
             ? GloboColors.errorLight
-            : GloboColors.backgroundSecondary,
+            : Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: GloboRadius.buttonRadius,
         border: Border.all(color: color.withAlpha(40)),
       ),
@@ -744,103 +736,317 @@ class _MetricChip extends StatelessWidget {
   }
 }
 
-// ── Botón SOS ─────────────────────────────────────────────────────────────────
+// ── Quick Actions Bar ──────────────────────────────────────────────────────────
 
-class _SosButton extends ConsumerWidget {
+class _QuickActionsBar extends StatelessWidget {
   final String operadorId;
   final String unidadId;
   final String viajeId;
 
-  const _SosButton({
+  const _QuickActionsBar({
     required this.operadorId,
     required this.unidadId,
     required this.viajeId,
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final sosState = ref.watch(sosProvider);
-
-    return GestureDetector(
-      onLongPress: () => _onSosPressed(context, ref),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        width:  72,
-        height: 72,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: sosState.isActive
-              ? GloboColors.sosPrimary
-              : GloboColors.sosSecondary,
-          boxShadow: [
-            BoxShadow(
-              color: (sosState.isActive
-                      ? GloboColors.sosPulse
-                      : GloboColors.sosPrimary)
-                  .withAlpha(sosState.isActive ? 120 : 60),
-              blurRadius:   sosState.isActive ? 24 : 8,
-              spreadRadius: sosState.isActive ? 8  : 2,
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.warning_rounded,
-                color: Colors.white, size: 28),
-            Text(
-              sosState.isActive ? 'SOS ON' : 'SOS',
-              style: GloboTypography.labelSmall
-                  .copyWith(color: Colors.white, fontSize: 10),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _onSosPressed(BuildContext context, WidgetRef ref) {
-    if (ref.read(sosProvider).isActive) {
-      _showCancelConfirmation(context, ref);
-      return;
-    }
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => SosPage(
-          operadorId: operadorId,
-          unidadId:   unidadId,
-          viajeId:    viajeId,
-        ),
-      ),
-    );
-  }
-
-  void _showCancelConfirmation(BuildContext context, WidgetRef ref) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('¿Cancelar SOS?'),
-        content:
-            const Text('Confirma solo si la situación está resuelta.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Mantener SOS'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: GloboColors.error),
-            onPressed: () {
-              ref.read(sosProvider.notifier).cancelarSOS();
-              Navigator.pop(ctx);
-            },
-            child: const Text('Cancelar SOS'),
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: GloboSpacing.md, vertical: GloboSpacing.sm),
+      decoration: BoxDecoration(
+        color: GloboColors.surface,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(20),
+            blurRadius: 10,
+            offset: const Offset(0, -2),
           ),
         ],
+      ),
+      child: SafeArea(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _QuickActionButton(
+              icon: Icons.local_gas_station,
+              label: 'Combustible',
+              color: GloboColors.warningAccent,
+              onPressed: () => _mostrarOcrDialog(context, 'Combustible'),
+            ),
+            _QuickActionButton(
+              icon: Icons.receipt_long,
+              label: 'Gastos',
+              color: GloboColors.info,
+              onPressed: () => _mostrarOcrDialog(context, 'Gastos'),
+            ),
+            _QuickActionButton(
+              icon: Icons.warning_rounded,
+              label: 'SOS',
+              color: GloboColors.error,
+              isAlert: true,
+              onPressed: () {
+                Navigator.push(context, MaterialPageRoute(
+                  builder: (_) => SosPage(operadorId: operadorId, unidadId: unidadId, viajeId: viajeId),
+                ));
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _mostrarOcrDialog(BuildContext context, String tipo) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(GloboRadius.lg)),
+      ),
+      builder: (_) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: FractionallySizedBox(
+          heightFactor: 0.85,
+          child: Column(
+            children: [
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 8),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).dividerColor,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: GloboSpacing.md),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Registrar $tipo', style: GloboTypography.titleMedium),
+                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                  ],
+                ),
+              ),
+              const Divider(),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.all(GloboSpacing.md),
+                    child: OcrCaptureWidget(
+                      viajeId: viajeId,
+                      operadorId: operadorId,
+                      unidadId: unidadId,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 }
+
+class _QuickActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final bool isAlert;
+  final VoidCallback onPressed;
+
+  const _QuickActionButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    this.isAlert = false,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: GloboRadius.cardRadius,
+      child: Container(
+        width: 100,
+        padding: const EdgeInsets.symmetric(vertical: GloboSpacing.sm),
+        decoration: BoxDecoration(
+          color: isAlert ? color : color.withAlpha(20),
+          borderRadius: GloboRadius.cardRadius,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: isAlert ? Colors.white : color, size: 28),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: GloboTypography.labelSmall.copyWith(
+                color: isAlert ? Colors.white : color,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Score personal del operador ───────────────────────────────────────────────
+
+class _ScorePersonalCard extends ConsumerWidget {
+  final String operadorId;
+  const _ScorePersonalCard({required this.operadorId});
+
+  Color _nivelColor(NivelScore nivel) => switch (nivel) {
+        NivelScore.excelente => GloboColors.successAccent,
+        NivelScore.bueno     => GloboColors.info,
+        NivelScore.regular   => GloboColors.warningAccent,
+        NivelScore.critico   => GloboColors.error,
+      };
+
+  String _nivelLabel(NivelScore nivel) => switch (nivel) {
+        NivelScore.excelente => 'Excelente',
+        NivelScore.bueno     => 'Bueno',
+        NivelScore.regular   => 'Regular',
+        NivelScore.critico   => 'Crítico',
+      };
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scores = ref.watch(operadorScoresProvider);
+    final score  = scores.where((s) => s.operadorId == operadorId).firstOrNull;
+
+    if (score == null) return const SizedBox.shrink();
+
+    final color = _nivelColor(score.nivel);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+            horizontal: GloboSpacing.md, vertical: GloboSpacing.sm),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: color.withAlpha(20),
+                shape: BoxShape.circle,
+                border: Border.all(color: color.withAlpha(80)),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                score.scoreTotal.toStringAsFixed(0),
+                style: GloboTypography.monoData.copyWith(
+                    color: color, fontSize: 14, fontWeight: FontWeight.bold),
+              ),
+            ),
+            const SizedBox(width: GloboSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Mi Score',
+                      style: GloboTypography.caption
+                          .copyWith(letterSpacing: 0.6)),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: color.withAlpha(18),
+                          borderRadius: GloboRadius.chipRadius,
+                          border: Border.all(color: color.withAlpha(60)),
+                        ),
+                        child: Text(
+                          _nivelLabel(score.nivel),
+                          style: GloboTypography.labelSmall
+                              .copyWith(color: color, fontSize: 11),
+                        ),
+                      ),
+                      const SizedBox(width: GloboSpacing.sm),
+                      Text(
+                        '${score.totalViajes} viaje${score.totalViajes == 1 ? '' : 's'}',
+                        style: GloboTypography.caption,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                _MetricChip(
+                  icon:  Icons.check_circle_outline,
+                  value: '${(score.tasaCompletitud * 100).toStringAsFixed(0)}%',
+                  label: 'completitud',
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Temporizador de viaje en curso ────────────────────────────────────────────
+
+class _TripElapsedTimer extends StatefulWidget {
+  final DateTime fechaInicio;
+  const _TripElapsedTimer({required this.fechaInicio});
+
+  @override
+  State<_TripElapsedTimer> createState() => _TripElapsedTimerState();
+}
+
+class _TripElapsedTimerState extends State<_TripElapsedTimer> {
+  late Timer _timer;
+  late Duration _elapsed;
+
+  @override
+  void initState() {
+    super.initState();
+    _elapsed = DateTime.now().difference(widget.fechaInicio);
+    _timer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) {
+        setState(() {
+          _elapsed = DateTime.now().difference(widget.fechaInicio);
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  String get _label {
+    final h = _elapsed.inHours;
+    final m = _elapsed.inMinutes % 60;
+    if (h > 0) return '${h}h ${m}m en ruta';
+    return '${m}m en ruta';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _MetricChip(
+      icon:  Icons.timer_outlined,
+      value: _label,
+      label: 'tiempo',
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _LoadingBody extends StatelessWidget {
   const _LoadingBody();

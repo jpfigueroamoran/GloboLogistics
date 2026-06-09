@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import '../../../../core/constants/theme_constants.dart';
+import '../../../../core/services/factura_pdf_service.dart';
+import '../../../../domain/entities/factura_cliente.dart';
 import '../../../../domain/entities/viaje.dart';
 import '../providers/dashboard_provider.dart';
-import 'package:intl/intl.dart';
+import '../providers/factura_cliente_provider.dart';
 
 class HistorialViajesPage extends ConsumerStatefulWidget {
   const HistorialViajesPage({super.key});
@@ -21,9 +24,7 @@ class _HistorialViajesPageState extends ConsumerState<HistorialViajesPage> {
     final viajesSP = ref.watch(viajesCompletadosProvider);
 
     return Scaffold(
-      backgroundColor: GloboColors.backgroundSecondary,
       appBar: AppBar(
-        backgroundColor: GloboColors.surface,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -67,6 +68,8 @@ class _HistorialViajesPageState extends ConsumerState<HistorialViajesPage> {
             filtrados = filtrados.where((v) => v.unidadId == _filtroUnidad).toList();
           }
 
+          final facturas = ref.watch(facturasProvider).valueOrNull ?? [];
+
           return Column(
             children: [
               _TopOffendersPanel(viajes: viajes),
@@ -81,7 +84,14 @@ class _HistorialViajesPageState extends ConsumerState<HistorialViajesPage> {
                 child: ListView.builder(
                   padding: const EdgeInsets.all(GloboSpacing.md),
                   itemCount: filtrados.length,
-                  itemBuilder: (ctx, i) => _HistorialRow(viaje: filtrados[i]),
+                  itemBuilder: (ctx, i) {
+                    final factura = facturas.cast<FacturaCliente?>()
+                        .firstWhere(
+                          (f) => f?.viajeId == filtrados[i].id,
+                          orElse: () => null,
+                        );
+                    return _HistorialRow(viaje: filtrados[i], factura: factura);
+                  },
                 ),
               ),
             ],
@@ -280,8 +290,9 @@ class _FiltrosPanel extends StatelessWidget {
 
 class _HistorialRow extends StatelessWidget {
   final Viaje viaje;
+  final FacturaCliente? factura;
 
-  const _HistorialRow({required this.viaje});
+  const _HistorialRow({required this.viaje, this.factura});
 
   @override
   Widget build(BuildContext context) {
@@ -395,8 +406,157 @@ class _HistorialRow extends StatelessWidget {
                 ],
               ),
             ],
+            if (factura != null) ...[
+              const SizedBox(height: GloboSpacing.sm),
+              Align(
+                alignment: Alignment.centerRight,
+                child: ActionChip(
+                  avatar: Icon(
+                    Icons.receipt_long_outlined,
+                    size: 16,
+                    color: factura!.estatus == EstatusFactura.cobrada
+                        ? GloboColors.success
+                        : GloboColors.warning,
+                  ),
+                  label: Text(
+                    'Ver Factura ${factura!.numeroFactura}',
+                    style: GloboTypography.labelSmall,
+                  ),
+                  onPressed: () => showDialog(
+                    context: context,
+                    builder: (_) => _FacturaDialog(factura: factura!),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ── Diálogo de Factura ────────────────────────────────────────────────────────
+
+class _FacturaDialog extends StatelessWidget {
+  final FacturaCliente factura;
+  const _FacturaDialog({required this.factura});
+
+  @override
+  Widget build(BuildContext context) {
+    final fmt = DateFormat('dd MMM yyyy');
+    final moneyFmt = NumberFormat.currency(locale: 'es_MX', symbol: '\$');
+    final ahora = DateTime.now();
+    final dias = factura.diasVencimiento(ahora);
+
+    Color estatusColor;
+    switch (factura.estatus) {
+      case EstatusFactura.cobrada:
+        estatusColor = GloboColors.success;
+        break;
+      case EstatusFactura.vencida:
+        estatusColor = GloboColors.error;
+        break;
+      case EstatusFactura.cancelada:
+        estatusColor = GloboColors.textTertiary;
+        break;
+      case EstatusFactura.pendiente:
+        estatusColor = GloboColors.warning;
+        break;
+    }
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Icon(Icons.receipt_long_outlined),
+          const SizedBox(width: GloboSpacing.sm),
+          Text(factura.numeroFactura),
+        ],
+      ),
+      content: SizedBox(
+        width: 400,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _DialogRow(label: 'Cliente', value: factura.clienteNombre),
+            _DialogRow(label: 'Emisión', value: fmt.format(factura.fechaEmision)),
+            _DialogRow(label: 'Vencimiento', value: fmt.format(factura.fechaVencimiento)),
+            _DialogRow(
+              label: 'Días',
+              value: dias >= 0 ? '+$dias días vigente' : '${-dias} días vencida',
+              valueColor: dias >= 0 ? GloboColors.success : GloboColors.error,
+            ),
+            _DialogRow(label: 'Monto', value: moneyFmt.format(factura.monto)),
+            if (factura.montoCobrado != null)
+              _DialogRow(
+                label: 'Cobrado',
+                value: moneyFmt.format(factura.montoCobrado!),
+                valueColor: GloboColors.success,
+              ),
+            if (factura.fechaCobro != null)
+              _DialogRow(label: 'Fecha Cobro', value: fmt.format(factura.fechaCobro!)),
+            const SizedBox(height: GloboSpacing.sm),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: GloboSpacing.md, vertical: GloboSpacing.xs),
+                decoration: BoxDecoration(
+                  color: estatusColor.withAlpha(30),
+                  borderRadius: GloboRadius.buttonRadius,
+                  border: Border.all(color: estatusColor.withAlpha(100)),
+                ),
+                child: Text(
+                  factura.estatus.name.toUpperCase(),
+                  style: GloboTypography.labelSmall.copyWith(color: estatusColor),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton.icon(
+          icon: const Icon(Icons.picture_as_pdf_outlined, size: 16),
+          label: const Text('Exportar PDF'),
+          onPressed: () => FacturaPdfService.exportar(factura),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cerrar'),
+        ),
+      ],
+    );
+  }
+}
+
+class _DialogRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color? valueColor;
+  const _DialogRow({required this.label, required this.value, this.valueColor});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(label, style: GloboTypography.labelSmall),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: GloboTypography.bodyMedium.copyWith(
+                color: valueColor,
+                fontWeight: valueColor != null ? FontWeight.w600 : null,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

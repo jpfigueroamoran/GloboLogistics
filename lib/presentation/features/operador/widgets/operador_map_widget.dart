@@ -1,16 +1,35 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../../../core/constants/theme_constants.dart';
 
-final currentLocationProvider = StreamProvider<Position>((ref) {
-  return Geolocator.getPositionStream(
-    locationSettings: const LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 10,
-    ),
-  );
+// Proveedor de simulación para desktop o fallback
+final currentLocationProvider = StreamProvider<Position>((ref) async* {
+  try {
+    final permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+      await Geolocator.requestPermission();
+    }
+    yield* Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 10),
+    );
+  } catch (e) {
+    // Fallback simulado para entornos de prueba sin GPS
+    yield Position(
+      longitude: -100.9855,
+      latitude: 22.1565,
+      timestamp: DateTime.now(),
+      accuracy: 10,
+      altitude: 0,
+      heading: 0,
+      speed: 0,
+      speedAccuracy: 0,
+      altitudeAccuracy: 0,
+      headingAccuracy: 0,
+    );
+  }
 });
 
 class OperadorMapWidget extends ConsumerStatefulWidget {
@@ -21,7 +40,7 @@ class OperadorMapWidget extends ConsumerStatefulWidget {
 }
 
 class _OperadorMapWidgetState extends ConsumerState<OperadorMapWidget> {
-  GoogleMapController? _controller;
+  final MapController _mapController = MapController();
 
   @override
   Widget build(BuildContext context) {
@@ -48,24 +67,40 @@ class _OperadorMapWidgetState extends ConsumerState<OperadorMapWidget> {
               error: (e, _) => Center(child: Text('Error al obtener ubicación: $e')),
               data: (pos) {
                 final latLng = LatLng(pos.latitude, pos.longitude);
-                if (_controller != null) {
-                  _controller!.animateCamera(CameraUpdate.newLatLng(latLng));
-                }
+                
+                // Animar el mapa a la nueva posición suavemente
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _mapController.move(latLng, 15);
+                });
 
-                return GoogleMap(
-                  initialCameraPosition: CameraPosition(target: latLng, zoom: 15),
-                  onMapCreated: (c) => _controller = c,
-                  markers: {
-                    Marker(
-                      markerId: const MarkerId('me'),
-                      position: latLng,
-                      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+                return FlutterMap(
+                  mapController: _mapController,
+                  options: MapOptions(
+                    initialCenter: latLng,
+                    initialZoom: 15,
+                  ),
+                  children: [
+                    TileLayer(
+                      urlTemplate: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+                      subdomains: const ['a', 'b', 'c', 'd'],
+                      userAgentPackageName: 'com.globo.logistics',
                     ),
-                  },
-                  myLocationEnabled: true,
-                  myLocationButtonEnabled: true,
-                  zoomControlsEnabled: false,
-                  style: _darkMapStyle,
+                    MarkerLayer(
+                      markers: [
+                        Marker(
+                          point: latLng,
+                          width: 40,
+                          height: 40,
+                          child: const Icon(
+                            Icons.my_location,
+                            color: GloboColors.primary,
+                            size: 30,
+                            shadows: [Shadow(color: GloboColors.accentGlow, blurRadius: 10)],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 );
               },
             ),
@@ -74,21 +109,4 @@ class _OperadorMapWidgetState extends ConsumerState<OperadorMapWidget> {
       ),
     );
   }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
 }
-
-const _darkMapStyle = '''
-[
-  {"elementType":"geometry","stylers":[{"color":"#0f1923"}]},
-  {"elementType":"labels.text.fill","stylers":[{"color":"#8f9eb0"}]},
-  {"elementType":"labels.text.stroke","stylers":[{"color":"#0f1923"}]},
-  {"featureType":"road","elementType":"geometry","stylers":[{"color":"#1b3f6e"}]},
-  {"featureType":"road","elementType":"geometry.stroke","stylers":[{"color":"#0b2545"}]},
-  {"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#1565c0"}]}
-]
-''';

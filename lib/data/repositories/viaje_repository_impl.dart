@@ -42,6 +42,7 @@ class ViajeRepositoryImpl implements IViajeRepository {
         id: viaje.id,
         unidadId: viaje.unidadId,
         operadorId: viaje.operadorId,
+        operadorNombre: viaje.operadorNombre,
         origenDescripcion: viaje.origenDescripcion,
         destinoDescripcion: viaje.destinoDescripcion,
         origenGeo: viaje.origenGeo,
@@ -104,7 +105,14 @@ class ViajeRepositoryImpl implements IViajeRepository {
   Future<Either<Failure, Unit>> actualizarTco(
       String viajeId, TcoViaje tco) async {
     try {
-      await _remote.watchViajesActivos().first;
+      final tcoMap = {
+        'combustible':   tco.combustible,
+        'mantenimiento': tco.mantenimiento,
+        'peajes':        tco.peajes,
+        'otros':         tco.otros,
+        'total':         tco.total,
+      };
+      await _remote.setTcoViaje(viajeId, tcoMap);
       return const Right(unit);
     } catch (e) {
       return Left(ServerFailure(e.toString()));

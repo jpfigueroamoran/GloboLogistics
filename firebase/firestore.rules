@@ -163,5 +163,28 @@ service cloud.firestore {
       allow delete: if isAdministrador();
     }
 
+    // ── Finanzas (Activos Fijos y Pólizas) ───────────────────────────────
+    match /activos_fijos/{docId} {
+      allow read, create, update: if isSupervisorOrAdmin();
+      allow delete: if isAdministrador();
+    }
+    match /polizas_seguro/{docId} {
+      allow read, create, update: if isSupervisorOrAdmin();
+      allow delete: if isAdministrador();
+    }
+
+    // ── Facturación ───────────────────────────────────────────────────────
+    match /facturas_clientes/{docId} {
+      allow read, write: if isSupervisorOrAdmin();
+    }
+    match /facturas_proveedores/{docId} {
+      allow read, write: if isSupervisorOrAdmin();
+    }
+
+    // ── Inventario ────────────────────────────────────────────────────────
+    match /inventario/{docId} {
+      allow read, write: if isSupervisorOrAdmin();
+    }
+
   }
 }

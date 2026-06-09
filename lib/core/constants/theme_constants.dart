@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 // negros profundos, blancos limpios, gris acero y azul ejecutivo.
 
 abstract final class GloboColors {
+  // ── Modo Claro ───────────────────────────────────────────────────────────────
   // Fondos
   static const Color backgroundPrimary = Color(0xFFFFFFFF);
   static const Color backgroundSecondary = Color(0xFFF4F5F7);
@@ -15,6 +16,18 @@ abstract final class GloboColors {
   static const Color surface = Color(0xFFFFFFFF);
   static const Color surfaceElevated = Color(0xFFF8F9FB);
   static const Color surfaceDark = Color(0xFF0F1923);
+
+  // ── Modo Oscuro — tokens para widgets que necesitan verificar brightness ─────
+  static const Color darkBackground        = Color(0xFF0A1320);
+  static const Color darkBackgroundSecondary = Color(0xFF0F1923);
+  static const Color darkBackgroundTertiary  = Color(0xFF182840);
+  static const Color darkSurface           = Color(0xFF111D2B);
+  static const Color darkSurfaceElevated   = Color(0xFF182840);
+  static const Color darkDivider           = Color(0xFF243344);
+  static const Color darkSuccessLight      = Color(0xFF0D2210);
+  static const Color darkWarningLight      = Color(0xFF251608);
+  static const Color darkErrorLight        = Color(0xFF250A0A);
+  static const Color darkInfoLight         = Color(0xFF081827);
 
   // Marca principal: Azul Ejecutivo
   static const Color primary = Color(0xFF0B2545);
@@ -397,11 +410,188 @@ final class GloboTheme {
         brightness: Brightness.dark,
         primary: GloboColors.accentGlow,
         onPrimary: GloboColors.textPrimary,
-        surface: const Color(0xFF0F1923),
+        primaryContainer: GloboColors.darkInfoLight,
+        secondary: GloboColors.accentBright,
+        onSecondary: GloboColors.textOnDark,
+        surface: GloboColors.darkBackgroundSecondary,
         onSurface: GloboColors.textOnDark,
+        surfaceContainerHighest: GloboColors.darkBackgroundTertiary,
+        error: GloboColors.errorAccent,
+        onError: GloboColors.textOnDark,
+        outline: GloboColors.darkDivider,
+        outlineVariant: const Color(0xFF1C2D3D),
       ),
-      scaffoldBackgroundColor: const Color(0xFF0A1320),
+      scaffoldBackgroundColor: GloboColors.darkBackground,
       textTheme: GoogleFonts.interTextTheme(_buildDarkTextTheme(base.textTheme)),
+
+      // AppBar
+      appBarTheme: AppBarTheme(
+        backgroundColor: GloboColors.darkBackgroundSecondary,
+        foregroundColor: GloboColors.textOnDark,
+        elevation: 0,
+        scrolledUnderElevation: 1,
+        shadowColor: GloboColors.darkDivider,
+        titleTextStyle:
+            GloboTypography.titleLarge.copyWith(color: GloboColors.textOnDark),
+        iconTheme:
+            const IconThemeData(color: GloboColors.textOnDark, size: 22),
+        centerTitle: false,
+        toolbarHeight: 60,
+      ),
+
+      // Card
+      cardTheme: const CardThemeData(
+        color: GloboColors.darkSurface,
+        elevation: 0,
+        shadowColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: GloboRadius.cardRadius,
+          side: BorderSide(color: GloboColors.darkDivider, width: 0.5),
+        ),
+        margin: EdgeInsets.zero,
+        clipBehavior: Clip.antiAlias,
+      ),
+
+      // Buttons
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: GloboColors.accentGlow,
+          foregroundColor: GloboColors.textPrimary,
+          elevation: 0,
+          shadowColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+              borderRadius: GloboRadius.buttonRadius),
+          textStyle: GloboTypography.labelLarge,
+          minimumSize: const Size(0, 48),
+          padding: const EdgeInsets.symmetric(
+              horizontal: GloboSpacing.lg, vertical: GloboSpacing.md),
+        ),
+      ),
+
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: GloboColors.accentGlow,
+          side: const BorderSide(color: GloboColors.accentGlow, width: 1.5),
+          shape: RoundedRectangleBorder(
+              borderRadius: GloboRadius.buttonRadius),
+          textStyle: GloboTypography.labelLarge,
+          minimumSize: const Size(0, 48),
+          padding: const EdgeInsets.symmetric(
+              horizontal: GloboSpacing.lg, vertical: GloboSpacing.md),
+        ),
+      ),
+
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: GloboColors.accentGlow,
+          textStyle: GloboTypography.labelLarge,
+          shape: RoundedRectangleBorder(
+              borderRadius: GloboRadius.buttonRadius),
+        ),
+      ),
+
+      // Input
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: GloboColors.darkBackgroundTertiary,
+        contentPadding: const EdgeInsets.symmetric(
+            horizontal: GloboSpacing.md, vertical: GloboSpacing.md),
+        border: OutlineInputBorder(
+          borderRadius: GloboRadius.buttonRadius,
+          borderSide: const BorderSide(color: GloboColors.darkDivider),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: GloboRadius.buttonRadius,
+          borderSide: const BorderSide(color: GloboColors.darkDivider),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: GloboRadius.buttonRadius,
+          borderSide:
+              const BorderSide(color: GloboColors.accentGlow, width: 1.5),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: GloboRadius.buttonRadius,
+          borderSide: const BorderSide(color: GloboColors.errorAccent),
+        ),
+        labelStyle: GloboTypography.bodyMedium
+            .copyWith(color: GloboColors.textOnDarkSecondary),
+        hintStyle: GloboTypography.bodyMedium
+            .copyWith(color: const Color(0xFF6B8096)),
+        errorStyle: GloboTypography.caption
+            .copyWith(color: GloboColors.errorAccent),
+      ),
+
+      // Chip
+      chipTheme: ChipThemeData(
+        backgroundColor: GloboColors.darkBackgroundTertiary,
+        selectedColor: GloboColors.accentGlow,
+        labelStyle: GloboTypography.labelSmall
+            .copyWith(color: GloboColors.textOnDarkSecondary),
+        padding: const EdgeInsets.symmetric(
+            horizontal: GloboSpacing.sm, vertical: GloboSpacing.xs),
+        shape: RoundedRectangleBorder(borderRadius: GloboRadius.chipRadius),
+        side: const BorderSide(color: GloboColors.darkDivider),
+      ),
+
+      // Divider
+      dividerTheme: const DividerThemeData(
+        color: GloboColors.darkDivider,
+        thickness: 0.5,
+        space: 0,
+      ),
+
+      // ListTile
+      listTileTheme: ListTileThemeData(
+        tileColor: Colors.transparent,
+        contentPadding: const EdgeInsets.symmetric(
+            horizontal: GloboSpacing.md, vertical: 4),
+        titleTextStyle: GloboTypography.titleMedium
+            .copyWith(color: GloboColors.textOnDark),
+        subtitleTextStyle: GloboTypography.bodyMedium
+            .copyWith(color: GloboColors.textOnDarkSecondary),
+        minVerticalPadding: 10,
+      ),
+
+      // BottomNavigationBar
+      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+        backgroundColor: GloboColors.darkBackgroundSecondary,
+        selectedItemColor: GloboColors.accentGlow,
+        unselectedItemColor: Color(0xFF6B8096),
+        type: BottomNavigationBarType.fixed,
+        elevation: 0,
+        selectedLabelStyle: GloboTypography.labelSmall,
+        unselectedLabelStyle: GloboTypography.labelSmall,
+      ),
+
+      // SnackBar
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: GloboColors.darkSurfaceElevated,
+        contentTextStyle: GloboTypography.bodyMedium
+            .copyWith(color: GloboColors.textOnDark),
+        shape:
+            RoundedRectangleBorder(borderRadius: GloboRadius.buttonRadius),
+        behavior: SnackBarBehavior.floating,
+      ),
+
+      // FloatingActionButton
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: GloboColors.accentGlow,
+        foregroundColor: GloboColors.textPrimary,
+        elevation: 4,
+        shape: CircleBorder(),
+      ),
+
+      // Dialog
+      dialogTheme: DialogThemeData(
+        backgroundColor: GloboColors.darkSurface,
+        elevation: GloboElevation.high,
+        shape:
+            RoundedRectangleBorder(borderRadius: GloboRadius.cardRadius),
+        titleTextStyle: GloboTypography.headlineMedium
+            .copyWith(color: GloboColors.textOnDark),
+        contentTextStyle: GloboTypography.bodyMedium
+            .copyWith(color: GloboColors.textOnDarkSecondary),
+      ),
     );
   }
 

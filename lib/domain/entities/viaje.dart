@@ -62,6 +62,7 @@ class Viaje extends Equatable {
   final String id;
   final String unidadId;
   final String operadorId;
+  final String? operadorNombre;
   final String origenDescripcion;
   final String destinoDescripcion;
   final GeoPoint? origenGeo;
@@ -85,6 +86,7 @@ class Viaje extends Equatable {
     required this.id,
     required this.unidadId,
     required this.operadorId,
+    this.operadorNombre,
     required this.origenDescripcion,
     required this.destinoDescripcion,
     this.origenGeo,
@@ -125,11 +127,12 @@ class Viaje extends Equatable {
     DateTime? updatedAt,
   }) {
     return Viaje(
-      id: id ?? this.id,
-      unidadId: unidadId ?? this.unidadId,
-      operadorId: operadorId ?? this.operadorId,
-      origenDescripcion: origenDescripcion ?? this.origenDescripcion,
-      destinoDescripcion: destinoDescripcion ?? this.destinoDescripcion,
+      id: id,
+      unidadId: unidadId,
+      operadorId: operadorId,
+      operadorNombre: operadorNombre,
+      origenDescripcion: origenDescripcion,
+      destinoDescripcion: destinoDescripcion,
       origenGeo: origenGeo ?? this.origenGeo,
       destinoGeo: destinoGeo ?? this.destinoGeo,
       destinos: destinos ?? this.destinos,
