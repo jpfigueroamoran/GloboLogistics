@@ -6,8 +6,10 @@ import '../../../../domain/entities/actividad_operativa.dart';
 import '../../../../domain/entities/operador_score.dart';
 import '../../../../domain/entities/viaje.dart';
 import '../providers/operador_provider.dart';
+import '../providers/viaje_geo_monitor_provider.dart';
 import '../widgets/ocr_capture_widget.dart';
 import '../widgets/operador_map_widget.dart';
+import 'carga_combustible_page.dart';
 import 'iniciar_viaje_page.dart';
 import 'sos_page.dart';
 import '../widgets/justificacion_dialog.dart';
@@ -275,12 +277,49 @@ class _OperadorBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final esProgramado = viaje?.estado == EstadoViaje.programado;
 
+    // Activar geo monitor cuando hay viaje con coordenadas
+    GeoMonitorState? geoState;
+    if (viaje != null &&
+        (viaje!.origenGeo != null || viaje!.destinoGeo != null)) {
+      geoState = ref.watch(viajeGeoMonitorProvider(viaje!));
+
+      // Escuchar auto-inicio y auto-cierre para notificar al operador
+      ref.listen<GeoMonitorState>(viajeGeoMonitorProvider(viaje!), (prev, next) {
+        if (!context.mounted) return;
+        if (prev?.zona != GeofenceZone.enBodegaCarga &&
+            next.zona == GeofenceZone.enBodegaCarga &&
+            viaje!.estado == EstadoViaje.programado) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('📦 Llegaste a la bodega — iniciando viaje automáticamente'),
+              backgroundColor: GloboColors.success,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        if (!next.stopDetectado && (prev?.stopDetectado ?? false)) return;
+        if (next.stopDetectado) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ Destino alcanzado — viaje completado automáticamente'),
+              backgroundColor: GloboColors.primary,
+              duration: Duration(seconds: 5),
+            ),
+          );
+        }
+      });
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(GloboSpacing.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _ScorePersonalCard(operadorId: operadorId),
+          if (geoState != null) ...[
+            const SizedBox(height: GloboSpacing.sm),
+            _GeofenceBanner(geoState: geoState, viaje: viaje!),
+          ],
           const SizedBox(height: GloboSpacing.md),
           _ViajeInfoCard(
             viaje:      viaje,
@@ -771,7 +810,26 @@ class _QuickActionsBar extends StatelessWidget {
               icon: Icons.local_gas_station,
               label: 'Combustible',
               color: GloboColors.warningAccent,
-              onPressed: () => _mostrarOcrDialog(context, 'Combustible'),
+              onPressed: () {
+                if (viajeId.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text(
+                            'Debes tener un viaje activo para registrar combustible')),
+                  );
+                  return;
+                }
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CargaCombustiblePage(
+                      viajeId: viajeId,
+                      operadorId: operadorId,
+                      unidadId: unidadId,
+                    ),
+                  ),
+                );
+              },
             ),
             _QuickActionButton(
               icon: Icons.receipt_long,
@@ -1061,4 +1119,117 @@ class _ErrorBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       Center(child: Text(message, style: GloboTypography.bodyMedium));
+}
+
+// ── Banner de geofence ────────────────────────────────────────────────────────
+
+class _GeofenceBanner extends StatelessWidget {
+  final GeoMonitorState geoState;
+  final Viaje viaje;
+
+  const _GeofenceBanner({required this.geoState, required this.viaje});
+
+  (Color bg, Color fg, IconData icon) get _style => switch (geoState.zona) {
+        GeofenceZone.enBodegaCarga => (
+          GloboColors.successLight,
+          GloboColors.successAccent,
+          Icons.warehouse_outlined,
+        ),
+        GeofenceZone.cercaOrigen => (
+          GloboColors.warningLight,
+          GloboColors.warningAccent,
+          Icons.near_me_outlined,
+        ),
+        GeofenceZone.enDestino => (
+          GloboColors.infoLight,
+          GloboColors.info,
+          Icons.flag_outlined,
+        ),
+        GeofenceZone.cercaDestino => (
+          GloboColors.infoLight,
+          GloboColors.primaryAccent,
+          Icons.near_me_outlined,
+        ),
+        _ => (
+          GloboColors.backgroundSecondary,
+          GloboColors.textSecondary,
+          Icons.gps_fixed,
+        ),
+      };
+
+  String get _distanciaLabel {
+    if (geoState.zona == GeofenceZone.enBodegaCarga ||
+        geoState.zona == GeofenceZone.cercaOrigen) {
+      final d = geoState.distanciaOrigenM;
+      return d != null ? '${d.toStringAsFixed(0)} m' : '';
+    }
+    final d = geoState.distanciaDestinoM;
+    return d != null ? '${d.toStringAsFixed(0)} m al destino' : '';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (geoState.zona == GeofenceZone.sinViaje ||
+        geoState.zona == GeofenceZone.fueraDeRuta ||
+        geoState.zona == GeofenceZone.enTransito) {
+      return const SizedBox.shrink();
+    }
+
+    final (bg, fg, icon) = _style;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: GloboRadius.cardRadius,
+        border: Border.all(color: fg.withAlpha(60)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: fg, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  geoState.zonaLabel,
+                  style: GloboTypography.labelLarge.copyWith(color: fg),
+                ),
+                if (_distanciaLabel.isNotEmpty)
+                  Text(
+                    _distanciaLabel,
+                    style: GloboTypography.caption.copyWith(color: fg),
+                  ),
+              ],
+            ),
+          ),
+          if (geoState.zona == GeofenceZone.enDestino &&
+              geoState.segundosEnDestino > 0)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  'Auto-cierre',
+                  style: GloboTypography.caption.copyWith(color: fg),
+                ),
+                Text(
+                  _formatTimer(geoState.segundosEnDestino),
+                  style: GloboTypography.monoData
+                      .copyWith(color: fg, fontSize: 13),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _formatTimer(int segs) {
+    final restante = 300 - segs;
+    final m = restante ~/ 60;
+    final s = restante % 60;
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
 }

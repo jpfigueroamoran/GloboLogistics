@@ -268,4 +268,12 @@ class FirestoreDatasource {
       'fecha_atencion': fs.FieldValue.serverTimestamp(),
     });
   }
+
+  // ── Costos Operativos ────────────────────────────────────────────────────
+
+  Future<String> crearCostoOperativo(Map<String, dynamic> data) async {
+    final ref = _db.collection(AppConstants.colCostosOperativos).doc();
+    await ref.set(data);
+    return ref.id;
+  }
 }

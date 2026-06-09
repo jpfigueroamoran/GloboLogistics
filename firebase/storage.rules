@@ -1,0 +1,56 @@
+rules_version = '2';
+
+// ─── Globo Logistics — Reglas de Firebase Storage ─────────────────────────
+// Principio mínimo privilegio:
+//   - Tickets de combustible: solo el operador propietario sube; supervisores/admins leen
+//   - Sin acceso público
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ── Helpers
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserRole() {
+      return firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.rol;
+    }
+
+    function isOperador() {
+      return isAuthenticated() && getUserRole() == 'operador';
+    }
+
+    function isSupervisorOrAdmin() {
+      return isAuthenticated() &&
+        (getUserRole() == 'supervisor' || getUserRole() == 'administrador');
+    }
+
+    // ── Tickets de combustible: tickets_combustible/{viajeId}/{archivo}
+    match /tickets_combustible/{viajeId}/{archivo} {
+      // Solo el operador que pertenece al viaje puede subir (write)
+      // La verificación exacta de viajeId→operadorId se hace en Cloud Function
+      allow write: if isAuthenticated() && isOperador()
+        && request.resource.size < 10 * 1024 * 1024   // max 10 MB
+        && request.resource.contentType.matches('image/.*');
+
+      // Supervisores y admins pueden leer (revisar tickets)
+      allow read: if isSupervisorOrAdmin() || isOperador();
+    }
+
+    // ── OCR / documentos operativos temporales
+    match /documentos_ocr/{operadorId}/{archivo} {
+      allow write: if isAuthenticated()
+        && request.auth.uid == operadorId
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow read: if isSupervisorOrAdmin()
+        || (isAuthenticated() && request.auth.uid == operadorId);
+    }
+
+    // ── Denegar todo lo demás
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

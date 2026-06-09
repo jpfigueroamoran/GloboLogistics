@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/theme_constants.dart';
+import '../../../../domain/entities/cliente.dart';
 import '../../../../domain/entities/unidad.dart';
 import '../../../../domain/entities/viaje.dart';
 import '../../../../domain/repositories/i_viaje_repository.dart';
 import '../../../../injection_container.dart';
+import '../../../features/clientes/widgets/cliente_selector_widget.dart';
 import '../providers/dashboard_provider.dart';
 import '../providers/unidades_provider.dart';
 
@@ -125,6 +127,13 @@ class _DespachoPagState extends ConsumerState<DespachoPag> {
 // ── Encabezado ────────────────────────────────────────────────────────────────
 
 class _Header extends StatelessWidget {
+  void _mostrarNuevoViajeDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => const _NuevoViajeDialog(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Row(
@@ -142,22 +151,154 @@ class _Header extends StatelessWidget {
         ElevatedButton.icon(
           icon: const Icon(Icons.add, size: 16),
           label: const Text('Nuevo Viaje'),
-          onPressed: () async {
-            final repo = sl<IViajeRepository>();
-            final ahora = DateTime.now();
-            final dummyViaje = Viaje(
-              id: '', // Firestore auto ID
-              unidadId: '', // Sin asignar
-              operadorId: '', // Sin asignar
-              origenDescripcion: 'Centro de Distribución Norte',
-              destinoDescripcion: 'Sucursal Principal',
-              estado: EstadoViaje.programado,
-              fechaInicio: ahora,
-              createdAt: ahora,
-              updatedAt: ahora,
-            );
-            await repo.crearViaje(dummyViaje);
-          },
+          onPressed: () => _mostrarNuevoViajeDialog(context),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Diálogo Nuevo Viaje ───────────────────────────────────────────────────────
+
+class _NuevoViajeDialog extends ConsumerStatefulWidget {
+  const _NuevoViajeDialog();
+
+  @override
+  ConsumerState<_NuevoViajeDialog> createState() => _NuevoViajeDialogState();
+}
+
+class _NuevoViajeDialogState extends ConsumerState<_NuevoViajeDialog> {
+  final _origenCtrl  = TextEditingController();
+  final _notasCtrl   = TextEditingController();
+
+  Cliente? _clienteDestino;
+  bool _guardando = false;
+
+  @override
+  void dispose() {
+    _origenCtrl.dispose();
+    _notasCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _crear() async {
+    if (_origenCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ingresa el origen del viaje')),
+      );
+      return;
+    }
+    if (_clienteDestino == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona el cliente destino')),
+      );
+      return;
+    }
+
+    setState(() => _guardando = true);
+    final ahora = DateTime.now();
+
+    final viaje = Viaje(
+      id: '',
+      unidadId: '',
+      operadorId: '',
+      origenDescripcion: _origenCtrl.text.trim(),
+      destinoDescripcion: _clienteDestino!.nombre,
+      destinoGeo: _clienteDestino!.posicion,
+      estado: EstadoViaje.programado,
+      createdAt: ahora,
+      updatedAt: ahora,
+      observaciones: _notasCtrl.text.trim().isEmpty
+          ? null
+          : _notasCtrl.text.trim(),
+    );
+
+    final result = await sl<IViajeRepository>().crearViaje(viaje);
+    if (!mounted) return;
+
+    result.fold(
+      (f) {
+        setState(() => _guardando = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: ${f.message}')),
+        );
+      },
+      (_) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Viaje creado — pendiente de asignación'),
+            backgroundColor: GloboColors.success,
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.add_road, size: 20),
+          SizedBox(width: 8),
+          Text('Nuevo Viaje'),
+        ],
+      ),
+      content: SizedBox(
+        width: 440,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _origenCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Origen (bodega de carga) *',
+                hintText: 'Centro de Distribución Norte',
+                prefixIcon: Icon(Icons.circle_outlined, size: 16),
+              ),
+              textCapitalization: TextCapitalization.sentences,
+            ),
+            const SizedBox(height: 12),
+            ClienteSelectorWidget(
+              label: 'Cliente / Destino de descarga *',
+              onSelected: (c) => setState(() => _clienteDestino = c),
+            ),
+            if (_clienteDestino?.posicion == null &&
+                _clienteDestino != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Este cliente no tiene coordenadas GPS — el geofence no estará disponible.',
+                style: GloboTypography.caption
+                    .copyWith(color: GloboColors.warning),
+              ),
+            ],
+            const SizedBox(height: 12),
+            TextField(
+              controller: _notasCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Notas de despacho (opcional)',
+              ),
+              maxLines: 2,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: _guardando ? null : _crear,
+          child: _guardando
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white))
+              : const Text('Crear Viaje'),
         ),
       ],
     );

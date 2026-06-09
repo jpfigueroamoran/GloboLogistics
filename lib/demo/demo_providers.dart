@@ -251,6 +251,16 @@ class _DemoClienteRepository implements IClienteRepository {
         .toList();
     return Right(results);
   }
+
+  @override
+  Future<Either<Failure, String>> crearCliente(
+          Map<String, dynamic> data) async =>
+      const Right('demo-cliente-id');
+
+  @override
+  Future<Either<Failure, void>> actualizarCliente(
+          String id, Map<String, dynamic> data) async =>
+      const Right(null);
 }
 
 final _demoClienteRepo = _DemoClienteRepository();

@@ -1485,6 +1485,82 @@ async function _tokensDeRoles(roles: string[]): Promise<string[]> {
 // Valida RFC, detecta duplicados y normaliza nombre para búsqueda.
 // ═══════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════
+// Fn 17 — onTicketCombustibleCreado
+// Supervisa cada registro de costo tipo "combustible" con foto.
+// Valida litros, detecta anomalías y notifica al supervisor.
+// ═══════════════════════════════════════════════════════════════════
+
+export const onTicketCombustibleCreado = onDocumentCreated(
+  `${C.COL.costos}/{costoId}`,
+  async (event) => {
+    const data = event.data?.data();
+    if (!data) return;
+    if (data.tipo !== "combustible") return;
+
+    const viajeId    = data.viaje_id as string | undefined;
+    const litros     = (data.litros as number | undefined) ?? 0;
+    const monto      = (data.monto  as number | undefined) ?? 0;
+    const imagenUrl  = data.imagen_url as string | undefined;
+    const costoId    = event.params.costoId;
+
+    if (!viajeId) return;
+
+    // ── Leer viaje para comparar litros esperados
+    const viajeSnap = await db.collection(C.COL.viajes).doc(viajeId).get();
+    if (!viajeSnap.exists) return;
+
+    const viajeData       = viajeSnap.data()!;
+    const litrosCargados  = (viajeData.litros_cargados as number | undefined) ?? 0;
+    const operadorId      = viajeData.operador_id as string;
+
+    // ── Detectar recarga excesiva (> 110% de la capacidad cargada)
+    const umbralAnomalia = litrosCargados * 1.1;
+    const esAnomalia = litrosCargados > 0 && litros > umbralAnomalia;
+
+    const updates: Record<string, unknown> = {
+      supervisado: true,
+      anomalia_detectada: esAnomalia,
+    };
+
+    if (esAnomalia) {
+      updates.anomalia_motivo =
+        `Litros registrados (${litros.toFixed(1)}L) superan el 110% de la capacidad cargada (${litrosCargados.toFixed(1)}L)`;
+      logger.warn(`[onTicketCombustibleCreado] Anomalía en costo ${costoId}: ${litros}L vs ${litrosCargados}L cargados`);
+    }
+
+    await db.collection(C.COL.costos).doc(costoId).update(updates);
+
+    // ── Notificar a supervisores vía FCM
+    const tokens = await _tokensDeRoles(["supervisor", "administrador"]);
+    if (tokens.length === 0) return;
+
+    const titulo = esAnomalia
+      ? "⚠️ Anomalía en ticket de combustible"
+      : "🛢️ Ticket de combustible registrado";
+
+    const cuerpo = esAnomalia
+      ? `Operador registró ${litros.toFixed(1)}L — posible sobrecarga. Revisar foto.`
+      : `${litros.toFixed(1)}L · $${monto.toFixed(2)} MXN${imagenUrl ? " · Con foto" : ""}`;
+
+    await getMessaging().sendEachForMulticast({
+      tokens,
+      notification: { title: titulo, body: cuerpo },
+      data: {
+        tipo:        "ticket_combustible",
+        viaje_id:    viajeId,
+        costo_id:    costoId,
+        operador_id: operadorId,
+        anomalia:    esAnomalia ? "1" : "0",
+      },
+      android: {
+        priority: esAnomalia ? "high" : "normal",
+        notification: { channelId: "operaciones" },
+      },
+    });
+  }
+);
+
 export const onClienteCreado = onDocumentCreated(
   `${C.COL.clientes}/{clienteId}`,
   async (event) => {

@@ -48,7 +48,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onClienteCreado = exports.lifecycleViajeCompletado = exports.lifecycleViajeEnCurso = exports.vencimientoPolizasSeguro = exports.alertaStockMinimo = exports.vencimientosCxP = exports.generarFacturaViaje = exports.cierreMensual = exports.actualizarUsuario = exports.crearUsuario = exports.recalcularAuditoriasSemanales = exports.ejecutarAuditoriaManual = exports.atenderAlerta = exports.recalcularTco = exports.onAlertaSOS = exports.auditoriaCombustible = void 0;
+exports.onClienteCreado = exports.onTicketCombustibleCreado = exports.lifecycleViajeCompletado = exports.lifecycleViajeEnCurso = exports.vencimientoPolizasSeguro = exports.alertaStockMinimo = exports.vencimientosCxP = exports.generarFacturaViaje = exports.cierreMensual = exports.actualizarUsuario = exports.crearUsuario = exports.recalcularAuditoriasSemanales = exports.ejecutarAuditoriaManual = exports.atenderAlerta = exports.recalcularTco = exports.onAlertaSOS = exports.auditoriaCombustible = void 0;
 const admin = __importStar(require("firebase-admin"));
 const firestore_1 = require("firebase-functions/v2/firestore");
 const https_1 = require("firebase-functions/v2/https");
@@ -1233,6 +1233,70 @@ async function _tokensDeRoles(roles) {
 // Fn 16 — onClienteCreado
 // Valida RFC, detecta duplicados y normaliza nombre para búsqueda.
 // ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// Fn 17 — onTicketCombustibleCreado
+// Supervisa cada registro de costo tipo "combustible" con foto.
+// Valida litros, detecta anomalías y notifica al supervisor.
+// ═══════════════════════════════════════════════════════════════════
+exports.onTicketCombustibleCreado = (0, firestore_1.onDocumentCreated)(`${C.COL.costos}/{costoId}`, async (event) => {
+    const data = event.data?.data();
+    if (!data)
+        return;
+    if (data.tipo !== "combustible")
+        return;
+    const viajeId = data.viaje_id;
+    const litros = data.litros ?? 0;
+    const monto = data.monto ?? 0;
+    const imagenUrl = data.imagen_url;
+    const costoId = event.params.costoId;
+    if (!viajeId)
+        return;
+    // ── Leer viaje para comparar litros esperados
+    const viajeSnap = await db.collection(C.COL.viajes).doc(viajeId).get();
+    if (!viajeSnap.exists)
+        return;
+    const viajeData = viajeSnap.data();
+    const litrosCargados = viajeData.litros_cargados ?? 0;
+    const operadorId = viajeData.operador_id;
+    // ── Detectar recarga excesiva (> 110% de la capacidad cargada)
+    const umbralAnomalia = litrosCargados * 1.1;
+    const esAnomalia = litrosCargados > 0 && litros > umbralAnomalia;
+    const updates = {
+        supervisado: true,
+        anomalia_detectada: esAnomalia,
+    };
+    if (esAnomalia) {
+        updates.anomalia_motivo =
+            `Litros registrados (${litros.toFixed(1)}L) superan el 110% de la capacidad cargada (${litrosCargados.toFixed(1)}L)`;
+        firebase_functions_1.logger.warn(`[onTicketCombustibleCreado] Anomalía en costo ${costoId}: ${litros}L vs ${litrosCargados}L cargados`);
+    }
+    await db.collection(C.COL.costos).doc(costoId).update(updates);
+    // ── Notificar a supervisores vía FCM
+    const tokens = await _tokensDeRoles(["supervisor", "administrador"]);
+    if (tokens.length === 0)
+        return;
+    const titulo = esAnomalia
+        ? "⚠️ Anomalía en ticket de combustible"
+        : "🛢️ Ticket de combustible registrado";
+    const cuerpo = esAnomalia
+        ? `Operador registró ${litros.toFixed(1)}L — posible sobrecarga. Revisar foto.`
+        : `${litros.toFixed(1)}L · $${monto.toFixed(2)} MXN${imagenUrl ? " · Con foto" : ""}`;
+    await (0, messaging_1.getMessaging)().sendEachForMulticast({
+        tokens,
+        notification: { title: titulo, body: cuerpo },
+        data: {
+            tipo: "ticket_combustible",
+            viaje_id: viajeId,
+            costo_id: costoId,
+            operador_id: operadorId,
+            anomalia: esAnomalia ? "1" : "0",
+        },
+        android: {
+            priority: esAnomalia ? "high" : "normal",
+            notification: { channelId: "operaciones" },
+        },
+    });
+});
 exports.onClienteCreado = (0, firestore_1.onDocumentCreated)(`${C.COL.clientes}/{clienteId}`, async (event) => {
     const data = event.data?.data();
     if (!data)
