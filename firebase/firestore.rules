@@ -203,14 +203,5 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // ── Actividad Operativa (lectura torre; Cloud Functions escribe) ──────────
-    match /actividad_operativa/{actividadId} {
-      allow read: if isSupervisorOrAdmin() ||
-        (isOperador() && resource.data.operador_id == request.auth.uid);
-      allow create: if isAuthenticated() &&
-        request.resource.data.operador_id == request.auth.uid;
-      allow update, delete: if isAdministrador();
-    }
-
   }
 }

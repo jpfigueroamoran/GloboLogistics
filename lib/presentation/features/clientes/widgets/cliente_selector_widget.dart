@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../domain/entities/cliente.dart';
 import '../pages/alta_cliente_page.dart';
-import '../providers/clientes_provider.dart';
+import '../../operador/providers/clientes_provider.dart';
 
 /// Botón/campo que muestra el cliente seleccionado y al tocar abre
 /// un bottom sheet de búsqueda con opción de registrar uno nuevo.

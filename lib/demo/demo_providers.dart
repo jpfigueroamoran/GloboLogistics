@@ -111,19 +111,29 @@ class _DemoViajeRepository implements IViajeRepository {
           String viajeId, String operadorId, String unidadId) async {
     final i = _viajesActivosLocal.indexWhere((v) => v.id == viajeId);
     if (i >= 0) {
-      // Create a copy replacing operator and unit
       final v = _viajesActivosLocal[i];
       _viajesActivosLocal[i] = Viaje(
-        id: v.id,
-        unidadId: unidadId,
-        operadorId: operadorId,
-        origenDescripcion: v.origenDescripcion,
-        destinoDescripcion: v.destinoDescripcion,
-        destinos: v.destinos,
-        estado: v.estado,
-        fechaInicio: v.fechaInicio,
-        createdAt: v.createdAt,
-        updatedAt: DateTime.now(),
+        id:                  v.id,
+        unidadId:            unidadId,
+        operadorId:          operadorId,
+        operadorNombre:      v.operadorNombre,
+        origenDescripcion:   v.origenDescripcion,
+        destinoDescripcion:  v.destinoDescripcion,
+        origenGeo:           v.origenGeo,
+        destinoGeo:          v.destinoGeo,
+        destinos:            v.destinos,
+        estado:              v.estado,
+        fechaInicio:         v.fechaInicio,
+        fechaFin:            v.fechaFin,
+        litrosCargados:      v.litrosCargados,
+        litrosConsumiidosTelemetria: v.litrosConsumiidosTelemetria,
+        litrosConsumiidosTickets:    v.litrosConsumiidosTickets,
+        varianzaCombustible: v.varianzaCombustible,
+        nivelAlerta:         v.nivelAlerta,
+        tco:                 v.tco,
+        observaciones:       v.observaciones,
+        createdAt:           v.createdAt,
+        updatedAt:           DateTime.now(),
       );
       _emitViajes();
     }

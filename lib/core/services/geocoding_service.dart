@@ -36,13 +36,18 @@ class GeocodingService {
     if (response.statusCode != 200) return [];
 
     final data = jsonDecode(response.body) as List<dynamic>;
-    return data.map((item) {
+    final results = <GeocodingResult>[];
+    for (final item in data) {
       final m = item as Map<String, dynamic>;
-      return GeocodingResult(
+      final lat = double.tryParse(m['lat'] as String? ?? '');
+      final lng = double.tryParse(m['lon'] as String? ?? '');
+      if (lat == null || lng == null) continue;
+      results.add(GeocodingResult(
         displayName: m['display_name'] as String,
-        lat: double.parse(m['lat'] as String),
-        lng: double.parse(m['lon'] as String),
-      );
-    }).toList();
+        lat: lat,
+        lng: lng,
+      ));
+    }
+    return results;
   }
 }
