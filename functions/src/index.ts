@@ -61,6 +61,7 @@ const C = {
     rateLimits:"rate_limit_operadores",
     actividad: "actividad_operativa",
     scores:    "scores_operadores",
+    clientes:  "clientes",
   },
 };
 
@@ -1478,3 +1479,56 @@ async function _tokensDeRoles(roles: string[]): Promise<string[]> {
   }
   return tokens;
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Fn 16 — onClienteCreado
+// Valida RFC, detecta duplicados y normaliza nombre para búsqueda.
+// ═══════════════════════════════════════════════════════════════════
+
+export const onClienteCreado = onDocumentCreated(
+  `${C.COL.clientes}/{clienteId}`,
+  async (event) => {
+    const data = event.data?.data();
+    if (!data) return;
+
+    const clienteId = event.params.clienteId;
+    const ref = db.collection(C.COL.clientes).doc(clienteId);
+
+    const updates: Record<string, unknown> = {};
+
+    // ── Normalizar nombre para búsqueda
+    if (typeof data.nombre === "string" && !data.nombre_busqueda) {
+      updates.nombre_busqueda = (data.nombre as string).toLowerCase().trim();
+    }
+
+    // ── Validar y verificar RFC
+    const rfc = (data.rfc as string | undefined)?.toUpperCase().trim();
+    if (rfc) {
+      // RFC México: 3-4 letras + 6 dígitos + 3 alfanumérico
+      const rfcRegex = /^[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}$/;
+      if (!rfcRegex.test(rfc)) {
+        updates.rfc_valido = false;
+        updates.rfc_invalido_motivo = "Formato incorrecto";
+        logger.warn(`[onClienteCreado] RFC inválido: ${rfc} en cliente ${clienteId}`);
+      } else {
+        updates.rfc_valido = true;
+        // Verificar duplicados (busca otros documentos con el mismo RFC activo)
+        const duplicados = await db.collection(C.COL.clientes)
+          .where("rfc", "==", rfc)
+          .where("activo", "==", true)
+          .get();
+        // El propio documento ya existe, así que > 1 indica duplicado
+        updates.rfc_duplicado = duplicados.size > 1;
+        if (duplicados.size > 1) {
+          logger.warn(`[onClienteCreado] RFC duplicado: ${rfc}`);
+        }
+        // Normalizar RFC a mayúsculas en el documento
+        updates.rfc = rfc;
+      }
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await ref.update(updates);
+    }
+  }
+);

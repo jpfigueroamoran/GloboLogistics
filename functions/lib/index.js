@@ -48,7 +48,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.vencimientoPolizasSeguro = exports.alertaStockMinimo = exports.vencimientosCxP = exports.generarFacturaViaje = exports.cierreMensual = exports.actualizarUsuario = exports.crearUsuario = exports.recalcularAuditoriasSemanales = exports.ejecutarAuditoriaManual = exports.atenderAlerta = exports.recalcularTco = exports.onAlertaSOS = exports.auditoriaCombustible = void 0;
+exports.onClienteCreado = exports.lifecycleViajeCompletado = exports.lifecycleViajeEnCurso = exports.vencimientoPolizasSeguro = exports.alertaStockMinimo = exports.vencimientosCxP = exports.generarFacturaViaje = exports.cierreMensual = exports.actualizarUsuario = exports.crearUsuario = exports.recalcularAuditoriasSemanales = exports.ejecutarAuditoriaManual = exports.atenderAlerta = exports.recalcularTco = exports.onAlertaSOS = exports.auditoriaCombustible = void 0;
 const admin = __importStar(require("firebase-admin"));
 const firestore_1 = require("firebase-functions/v2/firestore");
 const https_1 = require("firebase-functions/v2/https");
@@ -84,6 +84,9 @@ const C = {
         usuarios: "usuarios",
         auditorias: "auditorias_combustible",
         rateLimits: "rate_limit_operadores",
+        actividad: "actividad_operativa",
+        scores: "scores_operadores",
+        clientes: "clientes",
     },
 };
 // ═══════════════════════════════════════════════════════════════════
@@ -339,6 +342,10 @@ exports.onAlertaSOS = (0, firestore_1.onDocumentCreated)(`${C.COL.alertas}/{aler
         destinatarios_notificados: resp.successCount,
         destinatarios_fallidos: resp.failureCount,
     });
+    // Incrementar contador SOS en el score del operador
+    if (operadorId) {
+        await _incrementarSOSEnScore(operadorId);
+    }
     firebase_functions_1.logger.info(`SOS notificado — éxito: ${resp.successCount} fallo: ${resp.failureCount}`);
 });
 // ═══════════════════════════════════════════════════════════════════
@@ -351,6 +358,9 @@ exports.recalcularTco = (0, firestore_1.onDocumentWritten)(`${C.COL.viajes}/{via
     if (!after || !before)
         return;
     if (before.estado === "completado" || after.estado !== "completado")
+        return;
+    // lifecycleViajeCompletado ya cubre este cálculo
+    if (after.lc_completado === true)
         return;
     const viajeId = event.params.viajeId;
     firebase_functions_1.logger.info(`TCO final — viaje completado: ${viajeId}`);
@@ -638,6 +648,9 @@ exports.generarFacturaViaje = (0, firestore_1.onDocumentWritten)(`${C.COL.viajes
         return;
     if (before.estado === "completado" || after.estado !== "completado")
         return;
+    // lifecycleViajeCompletado cubre facturación con TCO correcto
+    if (after.lc_completado === true)
+        return;
     const viajeId = event.params.viajeId;
     const COL_FACTURAS = "facturas_clientes";
     const COL_CONFIG = "config";
@@ -877,4 +890,388 @@ async function _notificarTorreControl(resultado, varianzaPct, nivel) {
         android: { priority: "high" },
     });
 }
+// ═══════════════════════════════════════════════════════════════════
+// FUNCIÓN 14 — CICLO DE VIDA: Viaje → enCurso
+// - fecha_inicio en viaje (si faltaba)
+// - unidad.estado = "enTransito"
+// - actividad_operativa: viaje_iniciado
+// - FCM a supervisores/admins
+// ═══════════════════════════════════════════════════════════════════
+exports.lifecycleViajeEnCurso = (0, firestore_1.onDocumentWritten)(`${C.COL.viajes}/{viajeId}`, async (event) => {
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+    if (!after || !before)
+        return;
+    if (before.estado === "enCurso" || after.estado !== "enCurso")
+        return;
+    const viajeId = event.params.viajeId;
+    const unidadId = (after.unidad_id ?? "");
+    const operadorId = (after.operador_id ?? "");
+    const operadorNombre = (after.operador_nombre ?? operadorId);
+    const origenDesc = (after.origen_descripcion ?? "");
+    const destinoDesc = (after.destino_descripcion ?? "");
+    firebase_functions_1.logger.info(`lifecycleViajeEnCurso — ${viajeId}`);
+    const batch = db.batch();
+    if (!after.fecha_inicio) {
+        batch.update(db.collection(C.COL.viajes).doc(viajeId), {
+            fecha_inicio: admin.firestore.FieldValue.serverTimestamp(),
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        });
+    }
+    if (unidadId) {
+        batch.update(db.collection(C.COL.unidades).doc(unidadId), {
+            estado: "enTransito",
+            viaje_activo_id: viajeId,
+            ultima_actualizacion: admin.firestore.FieldValue.serverTimestamp(),
+        });
+    }
+    batch.set(db.collection(C.COL.actividad).doc(), {
+        tipo: "viaje_iniciado",
+        viaje_id: viajeId,
+        operador_id: operadorId,
+        unidad_id: unidadId,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        metadata: {
+            origen_descripcion: origenDesc,
+            destino_descripcion: destinoDesc,
+            operador_nombre: operadorNombre,
+        },
+    });
+    await batch.commit();
+    // FCM a supervisores/admins
+    const tokens = await _tokensDeRoles(["supervisor", "administrador"]);
+    if (tokens.length > 0) {
+        await (0, messaging_1.getMessaging)().sendEachForMulticast({
+            tokens,
+            notification: {
+                title: "🚛 Viaje Iniciado",
+                body: `${operadorNombre} — ${origenDesc} → ${destinoDesc}`,
+            },
+            data: {
+                tipo: "viaje_iniciado",
+                viaje_id: viajeId,
+                operador_id: operadorId,
+                unidad_id: unidadId,
+                click_action: "FLUTTER_NOTIFICATION_CLICK",
+            },
+            android: { priority: "normal" },
+        });
+    }
+    firebase_functions_1.logger.info(`lifecycleViajeEnCurso OK — ${viajeId}`);
+});
+// ═══════════════════════════════════════════════════════════════════
+// FUNCIÓN 15 — CICLO DE VIDA: Viaje → completado
+// Pipeline idempotente (lock transaccional con lc_completado):
+//   1. TCO final desde costos_operativos
+//   2. viaje: tco, costo_por_km, fecha_fin
+//   3. unidad: odometro_actual, estado (disponible / mantenimiento)
+//   4. Cerrar alertas activas del viaje
+//   5. Score del operador en scores_operadores
+//   6. Factura (si no existe)
+//   7. actividad_operativa: viaje_completado
+//   8. FCM al operador + supervisores/admins
+// Supersede: recalcularTco + generarFacturaViaje (quedan como fallback)
+// ═══════════════════════════════════════════════════════════════════
+exports.lifecycleViajeCompletado = (0, firestore_1.onDocumentWritten)(`${C.COL.viajes}/{viajeId}`, async (event) => {
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+    if (!after || !before)
+        return;
+    if (before.estado === "completado" || after.estado !== "completado")
+        return;
+    const viajeId = event.params.viajeId;
+    const viajeRef = db.collection(C.COL.viajes).doc(viajeId);
+    // ── Lock idempotente ─────────────────────────────────────────────
+    const yaProcessado = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(viajeRef);
+        if (snap.data()?.lc_completado === true)
+            return true;
+        tx.update(viajeRef, { lc_completado: true });
+        return false;
+    });
+    if (yaProcessado) {
+        firebase_functions_1.logger.info(`lifecycleViajeCompletado — ya procesado: ${viajeId}`);
+        return;
+    }
+    const unidadId = (after.unidad_id ?? "");
+    const operadorId = (after.operador_id ?? "");
+    const operadorNombre = (after.operador_nombre ?? operadorId);
+    const clienteId = (after.cliente_id ?? "");
+    const clienteNombre = (after.cliente_nombre ?? "Cliente");
+    const tieneBanderaRoja = after.nivel_alerta === "bandajaRoja";
+    const odometroFin = (after.odometro_fin ?? 0);
+    const odometroInicio = (after.odometro_inicio ?? 0);
+    firebase_functions_1.logger.info(`lifecycleViajeCompletado — iniciando: ${viajeId}`);
+    try {
+        // ── 1. TCO FINAL ─────────────────────────────────────────────
+        const costosSnap = await db
+            .collection(C.COL.costos)
+            .where("viaje_id", "==", viajeId)
+            .get();
+        const tco = { combustible: 0, mantenimiento: 0, peajes: 0, grua: 0, otros: 0, total: 0 };
+        for (const doc of costosSnap.docs) {
+            const { tipo, monto } = doc.data();
+            if (tipo === "diesel")
+                tco.combustible += monto;
+            else if (tipo === "mantenimiento")
+                tco.mantenimiento += monto;
+            else if (tipo === "peaje")
+                tco.peajes += monto;
+            else if (tipo === "grua")
+                tco.grua += monto;
+            else
+                tco.otros += monto;
+        }
+        tco.total = tco.combustible + tco.mantenimiento + tco.peajes + tco.grua + tco.otros;
+        const distanciaKm = Math.max(0, odometroFin - odometroInicio);
+        const costoPorKm = distanciaKm > 0 ? tco.total / distanciaKm : 0;
+        // ── 2. ACTUALIZAR VIAJE ──────────────────────────────────────
+        await viajeRef.update({
+            tco,
+            costo_por_km: costoPorKm,
+            ...(after.fecha_fin ? {} : { fecha_fin: admin.firestore.FieldValue.serverTimestamp() }),
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        // ── 3. ACTUALIZAR UNIDAD ─────────────────────────────────────
+        let alertasSnap = { size: 0, docs: [] };
+        if (unidadId) {
+            const unidadSnap = await db.collection(C.COL.unidades).doc(unidadId).get();
+            const proxMant = (unidadSnap.data()?.proximo_mantenimiento_odometro ?? 0);
+            const necesitaMant = odometroFin > 0 && proxMant > 0 && odometroFin >= proxMant;
+            const unidadUpd = {
+                estado: necesitaMant ? "mantenimiento" : "disponible",
+                viaje_activo_id: null,
+                ultima_actualizacion: admin.firestore.FieldValue.serverTimestamp(),
+            };
+            if (odometroFin > 0)
+                unidadUpd.odometro_actual = odometroFin;
+            await db.collection(C.COL.unidades).doc(unidadId).update(unidadUpd);
+            if (necesitaMant) {
+                firebase_functions_1.logger.info(`Unidad ${unidadId} requiere mantenimiento (odómetro: ${odometroFin})`);
+            }
+        }
+        // ── 4. CERRAR ALERTAS DEL VIAJE ──────────────────────────────
+        const alertasQuery = await db
+            .collection(C.COL.alertas)
+            .where("viaje_id", "==", viajeId)
+            .where("estado", "==", "activa")
+            .get();
+        alertasSnap = alertasQuery;
+        if (!alertasQuery.empty) {
+            const alertBatch = db.batch();
+            for (const doc of alertasQuery.docs) {
+                alertBatch.update(doc.ref, {
+                    estado: "cerrada_automaticamente",
+                    fecha_cierre: admin.firestore.FieldValue.serverTimestamp(),
+                    notas: "Cerrada automáticamente al completar el viaje.",
+                });
+            }
+            await alertBatch.commit();
+        }
+        // ── 5. SCORE DEL OPERADOR ────────────────────────────────────
+        if (operadorId) {
+            await _actualizarScoreOperador(operadorId, operadorNombre, tieneBanderaRoja);
+        }
+        // ── 6. FACTURA (idempotente) ─────────────────────────────────
+        const COL_FC = "facturas_clientes";
+        const COL_CFG = "config";
+        const existente = await db.collection(COL_FC)
+            .where("viaje_id", "==", viajeId).limit(1).get();
+        if (existente.empty) {
+            const pricing = (await db.collection(COL_CFG).doc("pricing").get()).data();
+            const margenPct = (pricing?.margen_pct ?? 0.15);
+            const monto = parseFloat((tco.total * (1 + margenPct)).toFixed(2));
+            const anio = new Date().getFullYear();
+            const contadorId = `factura_contador_${anio}`;
+            const nro = await db.runTransaction(async (tx) => {
+                const cRef = db.collection(COL_CFG).doc(contadorId);
+                const cSnap = await tx.get(cRef);
+                const sig = (cSnap.data()?.ultimo ?? 0) + 1;
+                tx.set(cRef, { ultimo: sig }, { merge: true });
+                return `GL-${anio}-${String(sig).padStart(4, "0")}`;
+            });
+            const emision = new Date();
+            const vencimiento = new Date(emision);
+            vencimiento.setDate(vencimiento.getDate() + 30);
+            await db.collection(COL_FC).add({
+                viaje_id: viajeId,
+                cliente_id: clienteId,
+                cliente_nombre: clienteNombre,
+                numero_factura: nro,
+                fecha_emision: admin.firestore.Timestamp.fromDate(emision),
+                fecha_vencimiento: admin.firestore.Timestamp.fromDate(vencimiento),
+                monto,
+                monto_cobrado: null,
+                estatus: "pendiente",
+                fecha_cobro: null,
+                carta_porte_uuid: null,
+                tco_base: tco.total,
+                margen_pct: margenPct,
+                created_at: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            firebase_functions_1.logger.info(`Factura ${nro}: $${monto.toFixed(2)} (viaje: ${viajeId})`);
+        }
+        // ── 7. ACTIVIDAD OPERATIVA ───────────────────────────────────
+        await db.collection(C.COL.actividad).add({
+            tipo: "viaje_completado",
+            viaje_id: viajeId,
+            operador_id: operadorId,
+            unidad_id: unidadId,
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            metadata: {
+                tco_total: tco.total,
+                costo_por_km: costoPorKm,
+                distancia_km: distanciaKm,
+                operador_nombre: operadorNombre,
+                tenia_bandera_roja: tieneBanderaRoja,
+                alertas_cerradas: alertasSnap.size,
+            },
+        });
+        // ── 8. FCM OPERADOR + TORRE ──────────────────────────────────
+        const tokens = await _tokensDeRoles(["supervisor", "administrador"]);
+        const opSnap = await db.collection(C.COL.usuarios).doc(operadorId).get();
+        const opFcm = opSnap.data()?.fcm_token;
+        if (opFcm)
+            tokens.push(opFcm);
+        if (tokens.length > 0) {
+            await (0, messaging_1.getMessaging)().sendEachForMulticast({
+                tokens,
+                notification: {
+                    title: "✅ Viaje Completado",
+                    body: `${operadorNombre} — TCO: $${tco.total.toFixed(2)} MXN`,
+                },
+                data: {
+                    tipo: "viaje_completado",
+                    viaje_id: viajeId,
+                    operador_id: operadorId,
+                    tco_total: tco.total.toFixed(2),
+                    click_action: "FLUTTER_NOTIFICATION_CLICK",
+                },
+                android: { priority: "normal" },
+            });
+        }
+        firebase_functions_1.logger.info(`lifecycleViajeCompletado OK — ${viajeId} ` +
+            `TCO=$${tco.total.toFixed(2)} km=${distanciaKm} alertas=${alertasSnap.size}`);
+    }
+    catch (err) {
+        firebase_functions_1.logger.error(`lifecycleViajeCompletado ERROR — ${viajeId}:`, err);
+        await viajeRef.update({ lc_completado: false }).catch(() => null);
+        throw err; // Activa el reintento automático de Cloud Functions
+    }
+});
+// ═══════════════════════════════════════════════════════════════════
+// HELPERS — Score de operadores
+// ═══════════════════════════════════════════════════════════════════
+function _calcularScore(viajesCompletados, totalViajes, alertasSOS, banderasRojas) {
+    if (totalViajes === 0)
+        return 100;
+    const completitud = viajesCompletados / totalViajes;
+    const sosRate = Math.min(alertasSOS / totalViajes, 1);
+    const banderaRate = Math.min(banderasRojas / totalViajes, 1);
+    return Math.max(0, Math.min(100, completitud * 60 +
+        (1 - sosRate) * 25 +
+        (1 - banderaRate) * 15));
+}
+async function _actualizarScoreOperador(operadorId, operadorNombre, tieneBanderaRoja) {
+    const ref = db.collection(C.COL.scores).doc(operadorId);
+    await db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        const d = snap.data() ?? { total_viajes: 0, viajes_completados: 0, alertas_sos: 0, banderas_rojas: 0 };
+        const totalViajes = d.total_viajes + 1;
+        const viajesCompletados = d.viajes_completados + 1;
+        const alertasSOS = d.alertas_sos;
+        const banderasRojas = d.banderas_rojas + (tieneBanderaRoja ? 1 : 0);
+        const score = _calcularScore(viajesCompletados, totalViajes, alertasSOS, banderasRojas);
+        tx.set(ref, {
+            operador_id: operadorId,
+            operador_nombre: operadorNombre,
+            total_viajes: totalViajes,
+            viajes_completados: viajesCompletados,
+            alertas_sos: alertasSOS,
+            banderas_rojas: banderasRojas,
+            score: Math.round(score),
+            ultimo_viaje_at: admin.firestore.FieldValue.serverTimestamp(),
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        });
+    });
+}
+async function _incrementarSOSEnScore(operadorId) {
+    const ref = db.collection(C.COL.scores).doc(operadorId);
+    await db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists)
+            return; // Score se inicializa al completar el primer viaje
+        const d = snap.data();
+        const alertasSOS = d.alertas_sos + 1;
+        const totalViajes = d.total_viajes;
+        const viajesComp = d.viajes_completados;
+        const banderasRojas = d.banderas_rojas;
+        const score = _calcularScore(viajesComp, totalViajes, alertasSOS, banderasRojas);
+        tx.update(ref, {
+            alertas_sos: alertasSOS,
+            score: Math.round(score),
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        });
+    });
+}
+// ═══════════════════════════════════════════════════════════════════
+// HELPER — Tokens FCM por rol
+// ═══════════════════════════════════════════════════════════════════
+async function _tokensDeRoles(roles) {
+    const snap = await db.collection(C.COL.usuarios)
+        .where("rol", "in", roles)
+        .get();
+    const tokens = [];
+    for (const doc of snap.docs) {
+        const fcm = doc.data().fcm_token;
+        if (fcm)
+            tokens.push(fcm);
+    }
+    return tokens;
+}
+// ═══════════════════════════════════════════════════════════════════
+// Fn 16 — onClienteCreado
+// Valida RFC, detecta duplicados y normaliza nombre para búsqueda.
+// ═══════════════════════════════════════════════════════════════════
+exports.onClienteCreado = (0, firestore_1.onDocumentCreated)(`${C.COL.clientes}/{clienteId}`, async (event) => {
+    const data = event.data?.data();
+    if (!data)
+        return;
+    const clienteId = event.params.clienteId;
+    const ref = db.collection(C.COL.clientes).doc(clienteId);
+    const updates = {};
+    // ── Normalizar nombre para búsqueda
+    if (typeof data.nombre === "string" && !data.nombre_busqueda) {
+        updates.nombre_busqueda = data.nombre.toLowerCase().trim();
+    }
+    // ── Validar y verificar RFC
+    const rfc = data.rfc?.toUpperCase().trim();
+    if (rfc) {
+        // RFC México: 3-4 letras + 6 dígitos + 3 alfanumérico
+        const rfcRegex = /^[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}$/;
+        if (!rfcRegex.test(rfc)) {
+            updates.rfc_valido = false;
+            updates.rfc_invalido_motivo = "Formato incorrecto";
+            firebase_functions_1.logger.warn(`[onClienteCreado] RFC inválido: ${rfc} en cliente ${clienteId}`);
+        }
+        else {
+            updates.rfc_valido = true;
+            // Verificar duplicados (busca otros documentos con el mismo RFC activo)
+            const duplicados = await db.collection(C.COL.clientes)
+                .where("rfc", "==", rfc)
+                .where("activo", "==", true)
+                .get();
+            // El propio documento ya existe, así que > 1 indica duplicado
+            updates.rfc_duplicado = duplicados.size > 1;
+            if (duplicados.size > 1) {
+                firebase_functions_1.logger.warn(`[onClienteCreado] RFC duplicado: ${rfc}`);
+            }
+            // Normalizar RFC a mayúsculas en el documento
+            updates.rfc = rfc;
+        }
+    }
+    if (Object.keys(updates).length > 0) {
+        await ref.update(updates);
+    }
+});
 //# sourceMappingURL=index.js.map

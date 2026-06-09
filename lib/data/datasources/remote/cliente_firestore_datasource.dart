@@ -30,6 +30,15 @@ class ClienteFirestoreDatasource {
         .toList();
   }
 
+  Future<String> crearCliente(Map<String, dynamic> data) async {
+    final ref = await _db.collection(AppConstants.colClientes).add(data);
+    return ref.id;
+  }
+
+  Future<void> actualizarCliente(String id, Map<String, dynamic> data) async {
+    await _db.collection(AppConstants.colClientes).doc(id).update(data);
+  }
+
   Cliente _fromDoc(fs.DocumentSnapshot doc) {
     final d = doc.data() as Map<String, dynamic>;
     return Cliente(
@@ -37,8 +46,10 @@ class ClienteFirestoreDatasource {
       nombre:    d['nombre']    as String,
       direccion: d['direccion'] as String,
       posicion:  _parseGeo(d['posicion']),
+      rfc:       d['rfc']      as String?,
       telefono:  d['telefono'] as String?,
       contacto:  d['contacto'] as String?,
+      notas:     d['notas']    as String?,
       activo:    (d['activo'] as bool?) ?? true,
     );
   }

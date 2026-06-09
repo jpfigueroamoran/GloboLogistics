@@ -19,4 +19,24 @@ class ClienteRepositoryImpl implements IClienteRepository {
       return Left(ServerFailure(e.toString()));
     }
   }
+
+  @override
+  Future<Either<Failure, String>> crearCliente(Map<String, dynamic> data) async {
+    try {
+      final id = await _ds.crearCliente(data);
+      return Right(id);
+    } catch (e) {
+      return Left(ServerFailure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, void>> actualizarCliente(String id, Map<String, dynamic> data) async {
+    try {
+      await _ds.actualizarCliente(id, data);
+      return const Right(null);
+    } catch (e) {
+      return Left(ServerFailure(e.toString()));
+    }
+  }
 }

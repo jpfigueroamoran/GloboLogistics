@@ -186,6 +186,16 @@ service cloud.firestore {
       allow read, write: if isSupervisorOrAdmin();
     }
 
+    // ── Clientes ─────────────────────────────────────────────────────────────
+    match /clientes/{clienteId} {
+      // Todos los roles autenticados pueden leer (necesario para crear viajes)
+      allow read: if isAuthenticated();
+      // Solo supervisores/admins pueden crear y actualizar clientes
+      allow create, update: if isSupervisorOrAdmin();
+      // Solo admin puede eliminar (soft-delete preferido: activo=false)
+      allow delete: if isAdministrador();
+    }
+
     // ── Scores de Operadores (escritura solo vía Cloud Functions / Admin SDK) ─
     match /scores_operadores/{operadorId} {
       allow read: if isSupervisorOrAdmin() ||

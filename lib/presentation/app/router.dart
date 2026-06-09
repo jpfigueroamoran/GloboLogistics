@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../features/auth/pages/auth_landing_page.dart';
+import '../features/clientes/pages/alta_cliente_page.dart';
 import '../features/operador/pages/iniciar_viaje_page.dart';
 import '../features/operador/pages/operador_home_page.dart';
 import '../features/operador/pages/sos_page.dart';
@@ -20,6 +21,7 @@ abstract final class AppRoutes {
   static const operador      = '/operador';
   static const sos           = '/operador/sos';
   static const iniciarViaje  = '/operador/iniciar-viaje';
+  static const altaCliente   = AltaClientePage.routeName;
 }
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -31,6 +33,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.auth,
         builder: (_, __) => const AuthLandingPage(),
+      ),
+
+      // Clientes
+      GoRoute(
+        path: AppRoutes.altaCliente,
+        builder: (_, __) => const AltaClientePage(),
       ),
 
       // Torre de Control (Web / Windows)
