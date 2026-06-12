@@ -48,6 +48,16 @@ service firebase.storage {
         || (isAuthenticated() && request.auth.uid == operadorId);
     }
 
+    // ── Evidencias de incidentes SOS: evidencias_sos/{alertaId}/{archivo}
+    match /evidencias_sos/{alertaId}/{archivo} {
+      // Operadores suben foto/audio durante SOS activo
+      allow write: if isAuthenticated()
+        && request.resource.size < 25 * 1024 * 1024; // max 25 MB (audio puede ser mayor)
+
+      // Supervisores y admins leen para verificar el incidente
+      allow read: if isSupervisorOrAdmin() || isOperador();
+    }
+
     // ── Denegar todo lo demás
     match /{allPaths=**} {
       allow read, write: if false;

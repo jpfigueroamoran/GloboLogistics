@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -39,6 +40,12 @@ class FcmService {
   }
 
   static Future<void> init() async {
+    // FCM no tiene implementación nativa en Windows/Linux
+    if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) {
+      debugPrint('[FCM] Push notifications skipped on this desktop platform.');
+      return;
+    }
+
     // ── Handler de background (top-level function) ────────────────────────
     FirebaseMessaging.onBackgroundMessage(
         _firebaseMessagingBackgroundHandler);
@@ -51,8 +58,12 @@ class FcmService {
       criticalAlert: true, // iOS — alertas críticas (SOS)
     );
 
-    // ── Token inicial ─────────────────────────────────────────────────────
-    await saveToken();
+    // ── Guardar token en cada inicio de sesión ────────────────────────────
+    // authStateChanges emite el estado actual al suscribirse, así que esto
+    // también cubre el caso de sesión ya activa al arrancar la app.
+    FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user != null) saveToken();
+    });
 
     // ── Escuchar renovaciones de token ────────────────────────────────────
     FirebaseMessaging.instance.onTokenRefresh.listen((_) => saveToken());
@@ -81,16 +92,16 @@ class FcmService {
   /// Llámalo también desde auth_provider cuando el usuario inicia sesión.
   static Future<void> saveToken() async {
     try {
+      // Web push requiere una VAPID key configurada en Firebase Console.
+      // Hasta que se configure, omitimos el token en web para evitar el error
+      // "applicationServerKey is not valid" en PushManager.subscribe.
+      // Tampoco hay soporte nativo en Windows/Linux.
+      if (kIsWeb || Platform.isWindows || Platform.isLinux) return;
+
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
-      final token = kIsWeb
-          ? await FirebaseMessaging.instance.getToken(
-              // Para web se necesita la VAPID key del proyecto Firebase
-              // Firebase Console → Project Settings → Cloud Messaging → Web Push certificates
-              vapidKey: 'REPLACE_WITH_VAPID_KEY',
-            )
-          : await FirebaseMessaging.instance.getToken();
+      final token = await FirebaseMessaging.instance.getToken();
 
       if (token == null) return;
 

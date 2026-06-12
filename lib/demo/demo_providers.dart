@@ -1,8 +1,13 @@
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart' as cf;
 import 'package:dartz/dartz.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../core/errors/failures.dart';
+import '../core/services/fcm_service.dart';
+import '../data/datasources/remote/firestore_datasource.dart';
+import '../data/models/usuario_globo_model.dart';
+import '../injection_container.dart';
 import '../domain/entities/activo_fijo.dart';
 import '../domain/entities/alerta_seguridad.dart';
 import '../domain/entities/cliente.dart';
@@ -36,6 +41,7 @@ import '../presentation/features/torre_control/providers/factura_proveedor_provi
 import '../presentation/features/torre_control/providers/inventario_provider.dart';
 import '../presentation/features/torre_control/providers/poliza_seguro_provider.dart';
 import '../presentation/features/torre_control/providers/unidades_provider.dart';
+import '../presentation/features/torre_control/providers/usuarios_provider.dart';
 import '../presentation/features/torre_control/providers/documentos_provider.dart';
 import '../domain/entities/documento_vencimiento.dart';
 import '../presentation/features/torre_control/widgets/alerta_panel_widget.dart';
@@ -44,7 +50,10 @@ import '../presentation/features/torre_control/pages/auditoria_page.dart';
 import '../presentation/features/operador/pages/iniciar_viaje_page.dart';
 import '../presentation/features/operador/pages/operador_home_page.dart';
 import '../presentation/features/operador/pages/sos_page.dart';
+import '../presentation/features/auth/pages/auth_landing_page.dart';
 import '../presentation/features/auth/pages/demo_login_page.dart';
+import '../presentation/features/clientes/pages/alta_cliente_page.dart';
+import '../presentation/features/onboarding/pages/onboarding_wizard_page.dart';
 import 'demo_data.dart';
 
 // ── Estado Mutable de la Demo ───────────────────────────────────────────────
@@ -67,12 +76,22 @@ class _DemoViajeRepository implements IViajeRepository {
   }
 
   @override
-  Stream<List<Viaje>> watchViajesActivos() => _viajesStreamController.stream;
+  Stream<List<Viaje>> watchViajesActivos() {
+    return _viajesStreamController.stream.map((viajes) => viajes
+        .where((v) =>
+            v.estado == EstadoViaje.enCurso ||
+            v.estado == EstadoViaje.programado)
+        .toList());
+  }
 
   @override
   Stream<List<Viaje>> watchViajesPorOperador(String operadorId) {
-    return _viajesStreamController.stream.map(
-        (viajes) => viajes.where((v) => v.operadorId == operadorId).toList());
+    return _viajesStreamController.stream.map((viajes) => viajes
+        .where((v) =>
+            v.operadorId == operadorId &&
+            (v.estado == EstadoViaje.enCurso ||
+             v.estado == EstadoViaje.programado))
+        .toList());
   }
 
   @override
@@ -90,9 +109,29 @@ class _DemoViajeRepository implements IViajeRepository {
 
   @override
   Future<Either<Failure, String>> crearViaje(Viaje viaje) async {
-    _viajesActivosLocal.add(viaje);
+    final id = viaje.id.isEmpty
+        ? 'demo-${DateTime.now().millisecondsSinceEpoch}'
+        : viaje.id;
+    final nuevo = Viaje(
+      id: id,
+      unidadId: viaje.unidadId,
+      operadorId: viaje.operadorId,
+      operadorNombre: viaje.operadorNombre,
+      origenDescripcion: viaje.origenDescripcion,
+      destinoDescripcion: viaje.destinoDescripcion,
+      origenGeo: viaje.origenGeo,
+      destinoGeo: viaje.destinoGeo,
+      destinos: viaje.destinos,
+      estado: viaje.estado,
+      litrosCargados: viaje.litrosCargados,
+      tco: viaje.tco,
+      observaciones: viaje.observaciones,
+      createdAt: viaje.createdAt,
+      updatedAt: viaje.updatedAt,
+    );
+    _viajesActivosLocal.add(nuevo);
     _emitViajes();
-    return Right(viaje.id);
+    return Right(id);
   }
 
   @override
@@ -235,6 +274,27 @@ class _DemoSeguridadRepository implements ISeguridadRepository {
         posicion: a.posicion,
         atendidaPor: atendidaPor,
         notas: notas,
+      );
+      _emitAlertas();
+    }
+    return const Right(unit);
+  }
+
+  @override
+  Future<Either<Failure, Unit>> cancelarAlerta(String alertaId) async {
+    final i = _alertasActivasLocal.indexWhere((a) => a.id == alertaId);
+    if (i >= 0) {
+      final a = _alertasActivasLocal[i];
+      _alertasActivasLocal[i] = AlertaSeguridad(
+        id: a.id,
+        viajeId: a.viajeId,
+        operadorId: a.operadorId,
+        unidadId: a.unidadId,
+        timestamp: a.timestamp,
+        tipo: a.tipo,
+        estado: EstadoAlerta.falsaAlarma,
+        posicion: a.posicion,
+        notas: 'Cancelada por el operador desde la app.',
       );
       _emitAlertas();
     }
@@ -439,100 +499,209 @@ const operadorDemo = UsuarioGlobo(
 
 final demoUserProvider = StateProvider<UsuarioGlobo?>((ref) => null);
 
+/// true = modo demo (datos de ejemplo), false = modo producción con Firebase.
+/// La app arranca en producción; el demo se activa con el botón del login.
+final appModeProvider = StateProvider<bool>((ref) => false);
+
 // ── Overrides ─────────────────────────────────────────────────────────────────
 
 List<Override> get demoOverrides => [
       routerProvider.overrideWith((ref) => _demoRouter(ref)),
       authStatusProvider.overrideWith((ref) {
-        final currentDemoUser = ref.watch(demoUserProvider);
-        if (currentDemoUser == null) {
-          return const AuthState(status: AuthStatus.unauthenticated);
+        final isDemo = ref.watch(appModeProvider);
+        if (isDemo) {
+          final currentDemoUser = ref.watch(demoUserProvider);
+          if (currentDemoUser == null) {
+            return const AuthState(status: AuthStatus.unauthenticated);
+          }
+          return AuthState(
+            status: currentDemoUser.rol == RolUsuario.operador
+                ? AuthStatus.operador
+                : AuthStatus.torreControl,
+            usuario: currentDemoUser,
+          );
         }
-        return AuthState(
-          status: currentDemoUser.rol == RolUsuario.operador
-              ? AuthStatus.operador
-              : AuthStatus.torreControl,
-          usuario: currentDemoUser,
-        );
+        // Modo producción: delegar a Firebase Auth real
+        final authAsync = ref.watch(authUserProvider);
+        final profileAsync = ref.watch(userProfileProvider);
+        if (authAsync.isLoading) return const AuthState.loading();
+        if (authAsync.hasError) {
+          return AuthState(
+              status: AuthStatus.error,
+              errorMessage: authAsync.error.toString());
+        }
+        final user = authAsync.valueOrNull;
+        if (user == null) return const AuthState.unauthenticated();
+        if (profileAsync.isLoading) {
+          return const AuthState(status: AuthStatus.loadingProfile);
+        }
+        final perfil = profileAsync.valueOrNull;
+        if (perfil == null) return const AuthState(status: AuthStatus.sinPerfil);
+        if (!perfil.activo) return const AuthState(status: AuthStatus.desactivado);
+        if (perfil.esOperador) return AuthState(status: AuthStatus.operador, usuario: perfil);
+        return AuthState(status: AuthStatus.torreControl, usuario: perfil);
       }),
-      operadorProvider.overrideWith(
-        (_) => OperadorNotifier(_demoViajeRepo),
-      ),
-      sosProvider.overrideWith(
-        (_) => SosNotifier(_demoSosUsecase),
-      ),
-      viajesActivosProvider.overrideWith(
-        (_) => _demoViajeRepo.watchViajesActivos(),
-      ),
-      unidadesActivasProvider.overrideWith(
-        (_) => Stream.value(DemoData.unidades),
-      ),
-      fcmForegroundProvider.overrideWith(
-        (_) => const Stream.empty(),
-      ),
-      alertasStreamProvider.overrideWith(
-        (_) => _DemoSeguridadRepository().watchAlertasActivas().map(
-          (alertas) => alertas.map((a) => {
-            'id': a.id,
-            'tipo': a.tipo.name,
-            'estado': a.estado.name,
-            'viaje_id': a.viajeId,
-            'operador_id': a.operadorId,
-            'posicion': {'lat': a.posicion.lat, 'lng': a.posicion.lng},
-          }).toList(),
-        ),
-      ),
-      viajeActivoStreamProvider(operadorDemo.uid).overrideWith(
-        (_) => _demoViajeRepo.watchViajesPorOperador('op001'),
-      ),
-      clientesStreamProvider.overrideWith(
-        (_) => Stream.value(DemoData.clientes),
-      ),
-      clientesBusquedaProvider.overrideWith(
-        (_) => ClientesBusquedaNotifier(_demoClienteRepo),
-      ),
-      iniciarViajeProvider.overrideWith(
-        (_) => IniciarViajeNotifier(_demoViajeRepo),
-      ),
-      activosFijosProvider.overrideWith(
-        (_) => _DemoActivoFijoRepository().watchActivosFijos(),
-      ),
-      polizasProvider.overrideWith(
-        (_) => _DemoPolizaSeguroRepository().watchPolizas(),
-      ),
-      facturasProvider.overrideWith(
-        (_) => _DemoFacturaClienteRepository().watchFacturas(),
-      ),
-      registrarCartaPorteProvider.overrideWithValue(
-        (_, __) async => const Right(unit),
-      ),
-      facturasProveedorProvider.overrideWith(
-        (_) => _demoFacturaProveedorRepo.watchFacturas(),
-      ),
-      crearFacturaProveedorProvider.overrideWith(
-        (_) => _demoFacturaProveedorRepo.crearFactura,
-      ),
-      inventarioProvider.overrideWith(
-        (_) => _DemoInventarioRepository().watchItems(),
-      ),
-      viajesCompletadosProvider.overrideWith(
-        (_) => _demoViajeRepo.watchViajesCompletados(),
-      ),
-      alertasActivasStreamProvider.overrideWith(
-        (_) => _DemoSeguridadRepository().watchAlertasActivas(),
-      ),
-      documentosProvider.overrideWith(
-        (_) => Stream.value(<DocumentoVencimiento>[]),
-      ),
+      viajeRepositoryProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo ? _demoViajeRepo : sl<IViajeRepository>();
+      }),
+      operadorProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? OperadorNotifier(_demoViajeRepo)
+            : OperadorNotifier(sl<IViajeRepository>());
+      }),
+      sosProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? SosNotifier(_demoSosUsecase)
+            : SosNotifier(sl<TriggerSosUsecase>());
+      }),
+      viajesActivosProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? _demoViajeRepo.watchViajesActivos()
+            : sl<IViajeRepository>().watchViajesActivos();
+      }),
+      unidadesActivasProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? Stream.value(DemoData.unidades)
+            : sl<FirestoreDatasource>().watchUnidades();
+      }),
+      todasUnidadesProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? Stream.value(DemoData.unidades)
+            : sl<FirestoreDatasource>().watchTodasUnidades();
+      }),
+      fcmForegroundProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? const Stream.empty()
+            : FcmService.foregroundMessages.map((m) => m);
+      }),
+      alertasStreamProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        if (isDemo) {
+          return _DemoSeguridadRepository().watchAlertasActivas().map(
+            (alertas) => alertas.map((a) => {
+              'id': a.id,
+              'tipo': a.tipo.name,
+              'estado': a.estado.name,
+              'viaje_id': a.viajeId,
+              'operador_id': a.operadorId,
+              'posicion': {'lat': a.posicion.lat, 'lng': a.posicion.lng},
+            }).toList(),
+          );
+        }
+        return sl<FirestoreDatasource>().watchAlertasActivas();
+      }),
+      viajeActivoStreamProvider(operadorDemo.uid).overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? _demoViajeRepo.watchViajesPorOperador('op001')
+            : sl<IViajeRepository>().watchViajesPorOperador(operadorDemo.uid);
+      }),
+      clientesStreamProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? Stream.value(DemoData.clientes)
+            : sl<IClienteRepository>().watchClientes();
+      }),
+      clientesBusquedaProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? ClientesBusquedaNotifier(_demoClienteRepo)
+            : ClientesBusquedaNotifier(sl<IClienteRepository>());
+      }),
+      iniciarViajeProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? IniciarViajeNotifier(_demoViajeRepo)
+            : IniciarViajeNotifier(sl<IViajeRepository>());
+      }),
+      activosFijosProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? _DemoActivoFijoRepository().watchActivosFijos()
+            : sl<IActivoFijoRepository>().watchActivosFijos();
+      }),
+      polizasProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? _DemoPolizaSeguroRepository().watchPolizas()
+            : sl<IPolizaSeguroRepository>().watchPolizas();
+      }),
+      facturasProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? _DemoFacturaClienteRepository().watchFacturas()
+            : sl<IFacturaClienteRepository>().watchFacturas();
+      }),
+      registrarCartaPorteProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        if (isDemo) return (_, __) async => const Right(unit);
+        return sl<IFacturaClienteRepository>().registrarCartaPorte;
+      }),
+      facturasProveedorProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? _demoFacturaProveedorRepo.watchFacturas()
+            : sl<IFacturaProveedorRepository>().watchFacturas();
+      }),
+      crearFacturaProveedorProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? _demoFacturaProveedorRepo.crearFactura
+            : sl<IFacturaProveedorRepository>().crearFactura;
+      }),
+      inventarioProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? _DemoInventarioRepository().watchItems()
+            : sl<IInventarioRepository>().watchItems();
+      }),
+      viajesCompletadosProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? _demoViajeRepo.watchViajesCompletados()
+            : sl<IViajeRepository>().watchViajesCompletados();
+      }),
+      alertasActivasStreamProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? _DemoSeguridadRepository().watchAlertasActivas()
+            : sl<ISeguridadRepository>().watchAlertasActivas();
+      }),
+      documentosProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        if (isDemo) return Stream.value(<DocumentoVencimiento>[]);
+        return sl<FirestoreDatasource>()
+            .watchDocumentos()
+            .map((list) => list.map(docFromSnapshot).toList());
+      }),
+      usuariosStreamProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        if (isDemo) return Stream.value(DemoData.usuarios);
+        return cf.FirebaseFirestore.instance
+            .collection('usuarios')
+            .snapshots()
+            .map((snap) => snap.docs
+                .map((d) => UsuarioGloboModel.fromFirestore(d))
+                .toList()
+              ..sort((a, b) => a.nombre.compareTo(b.nombre)));
+      }),
     ];
 
 // ── Router de demo ───────────────────────────────────────────────
 
 GoRouter _demoRouter(Ref ref) {
+  final isDemo = ref.watch(appModeProvider);
   final currentDemoUser = ref.watch(demoUserProvider);
 
   String initial = AppRoutes.auth;
-  if (currentDemoUser != null) {
+  if (isDemo && currentDemoUser != null) {
     initial = currentDemoUser.rol == RolUsuario.operador
         ? AppRoutes.operador
         : AppRoutes.dashboard;
@@ -545,7 +714,16 @@ GoRouter _demoRouter(Ref ref) {
     routes: [
       GoRoute(
         path: AppRoutes.auth,
-        builder: (_, __) => const DemoLoginPage(),
+        builder: (_, __) =>
+            isDemo ? const DemoLoginPage() : const AuthLandingPage(),
+      ),
+      GoRoute(
+        path: AppRoutes.altaCliente,
+        builder: (_, __) => const AltaClientePage(),
+      ),
+      GoRoute(
+        path: AppRoutes.onboarding,
+        builder: (_, __) => const OnboardingWizardPage(),
       ),
       GoRoute(
         path: AppRoutes.dashboard,

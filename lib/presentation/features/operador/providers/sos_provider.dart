@@ -52,7 +52,10 @@ class SosNotifier extends StateNotifier<SosState> {
         status: SosStatus.error,
         errorMessage: failure.message,
       ),
-      (_) => state = state.copyWith(status: SosStatus.active),
+      (alertaId) => state = state.copyWith(
+        status: SosStatus.active,
+        alertaId: alertaId,
+      ),
     );
   }
 

@@ -80,7 +80,9 @@ service cloud.firestore {
          resource.data.operador_asignado_id == request.auth.uid &&
          onlyAllowedFields(['ultima_posicion', 'ultima_actualizacion_posicion']));
 
-      allow create, delete: if isAdministrador();
+      // Supervisores dan de alta unidades desde Gestión de Flota
+      allow create: if isSupervisorOrAdmin();
+      allow delete: if isAdministrador();
     }
 
     // ── Viajes ────────────────────────────────────────────────────────────
@@ -111,9 +113,11 @@ service cloud.firestore {
       allow read: if isSupervisorOrAdmin() ||
         (isOperador() && resource.data.operador_id == request.auth.uid);
 
-      // Operadores solo crean sus propias actividades
-      allow create: if isAuthenticated() &&
-        request.resource.data.operador_id == request.auth.uid;
+      // Operadores crean sus propias actividades; Torre de Control registra
+      // los logs del ciclo de vida (automatización client-side, plan gratuito)
+      allow create: if isSupervisorOrAdmin() ||
+        (isAuthenticated() &&
+         request.resource.data.operador_id == request.auth.uid);
 
       // Inmutables una vez creadas
       allow update, delete: if isAdministrador();
@@ -139,11 +143,13 @@ service cloud.firestore {
       allow read: if isSupervisorOrAdmin() ||
         (isOperador() && resource.data.operador_id == request.auth.uid);
 
-      // Operadores pueden crear alertas SOS
-      allow create: if isAuthenticated() &&
-        request.resource.data.operador_id == request.auth.uid;
+      // Operadores crean alertas SOS; Torre de Control crea alertas de
+      // sistema (pólizas por vencer, stock) desde la automatización client-side
+      allow create: if isSupervisorOrAdmin() ||
+        (isAuthenticated() &&
+         request.resource.data.operador_id == request.auth.uid);
 
-      // Solo supervisores/admins pueden atender alertas
+      // Solo supervisores/admins pueden atender alertas y solicitar captura remota
       allow update: if isSupervisorOrAdmin() &&
         onlyAllowedFields([
           'estado',
@@ -152,15 +158,43 @@ service cloud.firestore {
           'fecha_atencion',
           'notificacion_enviada',
           'notificacion_timestamp',
-          'destinatarios_notificados'
+          'destinatarios_notificados',
+          'captura_remota'           // supervisores activan captura en dispositivo del operador
         ]);
 
-      // La posición SOS puede ser actualizada por el propio operador
+      // El operador puede actualizar posición, evidencias, marcar captura
+      // completada y cancelar su propio SOS (solo hacia 'falsaAlarma')
       allow update: if isAuthenticated() &&
         resource.data.operador_id == request.auth.uid &&
-        onlyAllowedFields(['posicion', 'ultima_actualizacion']);
+        onlyAllowedFields([
+          'posicion',
+          'ultima_actualizacion',
+          'evidencias',              // agregar fotos/audio capturados
+          'captura_remota',          // marcar captura como completada
+          'estado',                  // solo para cancelar (ver restricción abajo)
+          'notas'
+        ]) &&
+        (request.resource.data.estado == resource.data.estado ||
+         request.resource.data.estado == 'falsaAlarma');
 
       allow delete: if isAdministrador();
+
+      // ── Evidencias SOS (foto/audio en base64, sin Firebase Storage) ──────
+      match /evidencias/{evidenciaId} {
+        allow read: if isSupervisorOrAdmin() ||
+          (isAuthenticated() &&
+           get(/databases/$(database)/documents/alertas_seguridad/$(alertaId))
+             .data.operador_id == request.auth.uid);
+
+        // Solo el operador dueño de la alerta sube evidencia (máx ~700 KB)
+        allow create: if isAuthenticated() &&
+          get(/databases/$(database)/documents/alertas_seguridad/$(alertaId))
+            .data.operador_id == request.auth.uid &&
+          request.resource.data.datos is string &&
+          request.resource.data.datos.size() < 980000;
+
+        allow update, delete: if isAdministrador();
+      }
     }
 
     // ── Finanzas (Activos Fijos y Pólizas) ───────────────────────────────
@@ -196,11 +230,33 @@ service cloud.firestore {
       allow delete: if isAdministrador();
     }
 
-    // ── Scores de Operadores (escritura solo vía Cloud Functions / Admin SDK) ─
+    // ── Scores de Operadores ──────────────────────────────────────────────
+    // La escritura la hace la automatización client-side de Torre de Control
+    // (en plan gratuito no hay Cloud Functions / Admin SDK)
     match /scores_operadores/{operadorId} {
       allow read: if isSupervisorOrAdmin() ||
         (isOperador() && request.auth.uid == operadorId);
-      allow write: if false;
+      allow write: if isSupervisorOrAdmin();
+    }
+
+    // ── Documentos con vencimiento (semáforo de licencias, seguros, etc.) ──
+    match /documentos/{docId} {
+      allow read, write: if isSupervisorOrAdmin();
+    }
+
+    // ── Configuración (pricing, contadores de folio de factura) ───────────
+    match /config/{docId} {
+      allow read, write: if isSupervisorOrAdmin();
+    }
+
+    // ── Resúmenes financieros (cierre mensual) ────────────────────────────
+    match /resumenes_financieros/{docId} {
+      allow read, write: if isSupervisorOrAdmin();
+    }
+
+    // ── Auditorías de combustible (Litro Exacto client-side) ──────────────
+    match /auditorias_combustible/{docId} {
+      allow read, write: if isSupervisorOrAdmin();
     }
 
   }

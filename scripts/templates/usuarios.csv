@@ -1,0 +1,4 @@
+email,nombre,rol,password_temporal,unidad_asignada_id,activo
+carlos.mendez@el-globo.net,Carlos Méndez,operador,Pass1234!,u001,true
+ana.garcia@el-globo.net,Ana García,supervisor,,, true
+juan.admin@el-globo.net,Juan Admin,administrador,Admin5678!,,true

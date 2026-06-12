@@ -5,9 +5,12 @@ import '../../../../domain/repositories/i_seguridad_repository.dart';
 import '../../../../injection_container.dart';
 import '../../../../domain/repositories/i_viaje_repository.dart';
 
+/// Punto de inyección del repositorio de viajes — sobreescrito en modo demo.
+final viajeRepositoryProvider = Provider<IViajeRepository>((ref) => sl());
+
 final viajesActivosProvider =
     StreamProvider<List<Viaje>>((ref) {
-  return sl<IViajeRepository>().watchViajesActivos();
+  return ref.watch(viajeRepositoryProvider).watchViajesActivos();
 });
 
 final alertasActivasStreamProvider = StreamProvider<List<AlertaSeguridad>>((ref) {

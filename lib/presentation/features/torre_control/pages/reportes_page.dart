@@ -65,7 +65,8 @@ class ReportesPage extends ConsumerWidget {
   }
 
   void _exportarPDF(BuildContext context) async {
-    ScaffoldMessenger.of(context).showSnackBar(
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
       const SnackBar(
         content: Text('Generando reporte PDF…'),
         duration: Duration(seconds: 1),

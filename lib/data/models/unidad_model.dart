@@ -16,6 +16,7 @@ class UnidadModel extends Unidad {
     required super.odometro,
     required super.capacidadTanqueLitros,
     super.proximoMantenimientoOdometro,
+    super.viajeActivoId,
   });
 
   factory UnidadModel.fromFirestore(fs.DocumentSnapshot doc) {
@@ -40,6 +41,7 @@ class UnidadModel extends Unidad {
         orElse: () => EstadoUnidad.activa,
       ),
       operadorAsignadoId: map['operador_asignado_id'] as String?,
+      viajeActivoId:      map['viaje_activo_id'] as String?,
       ultimaPosicion:     posicion,
       ultimaActualizacionPosicion:
           (map['ultima_actualizacion_posicion'] as fs.Timestamp?)?.toDate(),

@@ -23,6 +23,34 @@ class FirestoreDatasource {
             snap.docs.map(UnidadModel.fromFirestore).toList());
   }
 
+  /// Todas las unidades sin filtrar por estado — para gestión de flota
+  /// (incluye mantenimiento y bajas, que watchUnidades oculta).
+  Stream<List<UnidadModel>> watchTodasUnidades() {
+    return _db
+        .collection(AppConstants.colUnidades)
+        .snapshots()
+        .map((snap) =>
+            snap.docs.map(UnidadModel.fromFirestore).toList()
+              ..sort((a, b) => a.placas.compareTo(b.placas)));
+  }
+
+  Future<String> crearUnidad(Map<String, dynamic> data) async {
+    final ref = _db.collection(AppConstants.colUnidades).doc();
+    await ref.set({
+      ...data,
+      'created_at': fs.FieldValue.serverTimestamp(),
+    });
+    return ref.id;
+  }
+
+  Future<void> actualizarUnidad(
+      String unidadId, Map<String, dynamic> data) async {
+    await _db.collection(AppConstants.colUnidades).doc(unidadId).update({
+      ...data,
+      'ultima_actualizacion': fs.FieldValue.serverTimestamp(),
+    });
+  }
+
   Future<void> updatePosicionUnidad(
       String unidadId, GeoPoint posicion) async {
     await _db
@@ -51,6 +79,38 @@ class FirestoreDatasource {
       'created_at': fs.FieldValue.serverTimestamp(),
     });
     return ref.id;
+  }
+
+  // ── Configuración de empresa (onboarding) ─────────────────────────────────
+
+  /// Emite la configuración de la empresa; null mientras no exista el doc
+  /// (la app no se ha configurado todavía).
+  Stream<Map<String, dynamic>?> watchEmpresaConfig() {
+    return _db
+        .collection(AppConstants.colConfig)
+        .doc(AppConstants.docEmpresa)
+        .snapshots()
+        .map((doc) => doc.exists ? doc.data() : null);
+  }
+
+  Future<void> guardarEmpresaConfig(Map<String, dynamic> data) async {
+    await _db
+        .collection(AppConstants.colConfig)
+        .doc(AppConstants.docEmpresa)
+        .set({
+      ...data,
+      'actualizado_at': fs.FieldValue.serverTimestamp(),
+    }, fs.SetOptions(merge: true));
+  }
+
+  Future<void> guardarPricing(Map<String, dynamic> data) async {
+    await _db
+        .collection(AppConstants.colConfig)
+        .doc(AppConstants.docPricing)
+        .set({
+      ...data,
+      'actualizado_at': fs.FieldValue.serverTimestamp(),
+    }, fs.SetOptions(merge: true));
   }
 
   // ── Viajes ────────────────────────────────────────────────────────────────
@@ -267,6 +327,99 @@ class FirestoreDatasource {
       'notas':         notas,
       'fecha_atencion': fs.FieldValue.serverTimestamp(),
     });
+  }
+
+  /// El operador cancela su propio SOS — queda registrado como falsa alarma.
+  /// Las reglas de Firestore solo permiten al dueño esta transición de estado.
+  Future<void> cancelarAlertaSOS(String alertaId) async {
+    await _db
+        .collection(AppConstants.colAlertasSeguridad)
+        .doc(alertaId)
+        .update({
+      'estado': EstadoAlerta.falsaAlarma.name,
+      'notas':  'Cancelada por el operador desde la app.',
+    });
+  }
+
+  // ── Captura remota de evidencia (activada por supervisor) ────────────────
+
+  Future<void> solicitarCapturaRemota(String alertaId, String tipo) async {
+    await _db
+        .collection(AppConstants.colAlertasSeguridad)
+        .doc(alertaId)
+        .update({
+      'captura_remota': {
+        'tipo':   tipo,         // 'audio' | 'camara'
+        'estado': 'pendiente',
+        'ts':     fs.FieldValue.serverTimestamp(),
+      },
+    });
+  }
+
+  Future<void> completarCapturaRemota(String alertaId) async {
+    await _db
+        .collection(AppConstants.colAlertasSeguridad)
+        .doc(alertaId)
+        .update({'captura_remota.estado': 'completada'});
+  }
+
+  /// Emite la solicitud pendiente de captura para un operador.
+  /// Retorna null cuando no hay ninguna solicitud activa.
+  Stream<Map<String, dynamic>?> watchSolicitudCapturaOperador(
+      String operadorId) {
+    return _db
+        .collection(AppConstants.colAlertasSeguridad)
+        .where('operador_id', isEqualTo: operadorId)
+        .where('estado', isEqualTo: EstadoAlerta.activa.name)
+        .snapshots()
+        .map((snap) {
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final captura =
+            data['captura_remota'] as Map<String, dynamic>?;
+        if (captura?['estado'] == 'pendiente') {
+          return {'alertaId': doc.id, ...captura!};
+        }
+      }
+      return null;
+    });
+  }
+
+  /// Plan gratuito sin Firebase Storage: la evidencia viaja comprimida en
+  /// base64 dentro de una subcolección (1 doc por archivo, máx ~1 MiB), y el
+  /// array `evidencias` del padre solo guarda metadatos ligeros para el
+  /// contador del panel de alertas.
+  Future<void> agregarEvidenciaSOS({
+    required String alertaId,
+    required String tipo, // 'foto' | 'audio'
+    required String datosB64,
+  }) async {
+    final alertaRef =
+        _db.collection(AppConstants.colAlertasSeguridad).doc(alertaId);
+    final evidenciaRef = alertaRef.collection('evidencias').doc();
+    final ts = DateTime.now().millisecondsSinceEpoch;
+
+    await evidenciaRef.set({
+      'tipo':  tipo,
+      'datos': datosB64,
+      'ts':    ts,
+    });
+    await alertaRef.update({
+      'evidencias': fs.FieldValue.arrayUnion([
+        {'id': evidenciaRef.id, 'tipo': tipo, 'ts': ts}
+      ]),
+    });
+  }
+
+  Stream<List<Map<String, dynamic>>> watchEvidenciasSOS(String alertaId) {
+    return _db
+        .collection(AppConstants.colAlertasSeguridad)
+        .doc(alertaId)
+        .collection('evidencias')
+        .orderBy('ts')
+        .snapshots()
+        .map((snap) =>
+            snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
   }
 
   // ── Costos Operativos ────────────────────────────────────────────────────

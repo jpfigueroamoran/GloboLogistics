@@ -16,6 +16,10 @@ class Unidad extends Equatable {
   final double capacidadTanqueLitros;
   final double? proximoMantenimientoOdometro;
 
+  /// ID del viaje en curso asignado a esta unidad (lo escribe la
+  /// automatización del ciclo de vida); null cuando está libre.
+  final String? viajeActivoId;
+
   const Unidad({
     required this.id,
     required this.placas,
@@ -28,14 +32,17 @@ class Unidad extends Equatable {
     required this.odometro,
     required this.capacidadTanqueLitros,
     this.proximoMantenimientoOdometro,
+    this.viajeActivoId,
   });
 
   bool get tieneOperadorAsignado => operadorAsignadoId != null;
   bool get estaActiva => estado == EstadoUnidad.activa;
-  
+  bool get enRuta => viajeActivoId != null && viajeActivoId!.isNotEmpty;
+
   bool get requiereServicio => proximoMantenimientoOdometro != null &&
       (proximoMantenimientoOdometro! - odometro) < 500;
 
   @override
-  List<Object?> get props => [id, placas, estado, operadorAsignadoId];
+  List<Object?> get props =>
+      [id, placas, estado, operadorAsignadoId, viajeActivoId, odometro];
 }

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../features/auth/pages/auth_landing_page.dart';
 import '../features/clientes/pages/alta_cliente_page.dart';
+import '../features/onboarding/pages/onboarding_wizard_page.dart';
 import '../features/operador/pages/iniciar_viaje_page.dart';
 import '../features/operador/pages/operador_home_page.dart';
 import '../features/operador/pages/sos_page.dart';
@@ -16,6 +17,7 @@ final rootNavigatorKey = GlobalKey<NavigatorState>();
 // Rutas nombradas
 abstract final class AppRoutes {
   static const auth          = '/';
+  static const onboarding    = '/configuracion-inicial';
   static const dashboard     = '/torre-control';
   static const auditoria     = '/torre-control/auditoria';
   static const operador      = '/operador';
@@ -33,6 +35,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.auth,
         builder: (_, __) => const AuthLandingPage(),
+      ),
+
+      GoRoute(
+        path: AppRoutes.onboarding,
+        builder: (_, __) => const OnboardingWizardPage(),
       ),
 
       // Clientes

@@ -4,10 +4,8 @@ import '../../../../core/constants/theme_constants.dart';
 import '../../../../domain/entities/cliente.dart';
 import '../../../../domain/entities/unidad.dart';
 import '../../../../domain/entities/viaje.dart';
-import '../../../../domain/repositories/i_viaje_repository.dart';
-import '../../../../injection_container.dart';
 import '../../../features/clientes/widgets/cliente_selector_widget.dart';
-import '../providers/dashboard_provider.dart';
+import '../providers/dashboard_provider.dart' show viajesActivosProvider, viajeRepositoryProvider;
 import '../providers/unidades_provider.dart';
 
 import '../providers/usuarios_provider.dart';
@@ -31,6 +29,51 @@ class _DespachoPagState extends ConsumerState<DespachoPag> {
     final viajesSP   = ref.watch(viajesActivosProvider);
     final usuariosSP = ref.watch(usuariosStreamProvider);
 
+    final panelAsignacion = _AsignacionPanel(
+      unidadesSP: unidadesSP,
+      viajesSP: viajesSP,
+      usuariosSP: usuariosSP,
+      selectedUnidadId: _selectedUnidadId,
+      selectedViajeId: _selectedViajeId,
+      selectedOperadorId: _selectedOperadorId,
+      onAsignar: _asignar,
+      onLimpiar: () => setState(() {
+        _selectedUnidadId = null;
+        _selectedViajeId = null;
+        _selectedOperadorId = null;
+      }),
+      onOperadorChanged: (id) => setState(() => _selectedOperadorId = id),
+    );
+
+    final colUnidades = _UnidadesColumn(
+      unidadesSP: unidadesSP,
+      selectedId: _selectedUnidadId,
+      onSelect: (id) => setState(() => _selectedUnidadId = id),
+    );
+
+    final colViajes = _ViajesColumn(
+      viajesSP: viajesSP,
+      selectedId: _selectedViajeId,
+      onSelect: (id) => setState(() => _selectedViajeId = id),
+    );
+
+    // ── Teléfono: columnas apiladas con scroll ───────────────────────────
+    if (MediaQuery.sizeOf(context).width < 800) {
+      return ListView(
+        padding: const EdgeInsets.all(GloboSpacing.md),
+        children: [
+          _Header(),
+          const SizedBox(height: GloboSpacing.md),
+          SizedBox(height: 300, child: colUnidades),
+          const SizedBox(height: GloboSpacing.md),
+          SizedBox(height: 300, child: colViajes),
+          const SizedBox(height: GloboSpacing.md),
+          SizedBox(height: 430, child: panelAsignacion),
+        ],
+      );
+    }
+
+    // ── Escritorio: tres columnas ────────────────────────────────────────
     return Padding(
       padding: const EdgeInsets.all(GloboSpacing.md),
       child: Column(
@@ -42,43 +85,11 @@ class _DespachoPagState extends ConsumerState<DespachoPag> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Columna unidades
-                Expanded(
-                  child: _UnidadesColumn(
-                    unidadesSP: unidadesSP,
-                    selectedId: _selectedUnidadId,
-                    onSelect: (id) => setState(() => _selectedUnidadId = id),
-                  ),
-                ),
+                Expanded(child: colUnidades),
                 const SizedBox(width: GloboSpacing.md),
-                // Columna viajes pendientes
-                Expanded(
-                  child: _ViajesColumn(
-                    viajesSP: viajesSP,
-                    selectedId: _selectedViajeId,
-                    onSelect: (id) => setState(() => _selectedViajeId = id),
-                  ),
-                ),
+                Expanded(child: colViajes),
                 const SizedBox(width: GloboSpacing.md),
-                // Panel de asignación
-                SizedBox(
-                  width: 300,
-                  child: _AsignacionPanel(
-                    unidadesSP: unidadesSP,
-                    viajesSP: viajesSP,
-                    usuariosSP: usuariosSP,
-                    selectedUnidadId: _selectedUnidadId,
-                    selectedViajeId: _selectedViajeId,
-                    selectedOperadorId: _selectedOperadorId,
-                    onAsignar: _asignar,
-                    onLimpiar: () => setState(() {
-                      _selectedUnidadId = null;
-                      _selectedViajeId = null;
-                      _selectedOperadorId = null;
-                    }),
-                    onOperadorChanged: (id) => setState(() => _selectedOperadorId = id),
-                  ),
-                ),
+                SizedBox(width: 300, child: panelAsignacion),
               ],
             ),
           ),
@@ -89,10 +100,10 @@ class _DespachoPagState extends ConsumerState<DespachoPag> {
 
   Future<void> _asignar() async {
     if (_selectedUnidadId == null || _selectedViajeId == null || _selectedOperadorId == null) return;
-    
+
     final opId = _selectedOperadorId!;
 
-    final result = await sl<IViajeRepository>().asignarViaje(
+    final result = await ref.read(viajeRepositoryProvider).asignarViaje(
       _selectedViajeId!,
       opId,
       _selectedUnidadId!,
@@ -213,7 +224,7 @@ class _NuevoViajeDialogState extends ConsumerState<_NuevoViajeDialog> {
           : _notasCtrl.text.trim(),
     );
 
-    final result = await sl<IViajeRepository>().crearViaje(viaje);
+    final result = await ref.read(viajeRepositoryProvider).crearViaje(viaje);
     if (!mounted) return;
 
     result.fold(
@@ -538,7 +549,8 @@ class _AsignacionPanel extends StatelessWidget {
     final unidades = unidadesSP.valueOrNull ?? [];
     final viajes   = viajesSP.valueOrNull ?? [];
     final usuarios = usuariosSP.valueOrNull ?? [];
-    final operadores = usuarios.where((u) => u.esOperador).toList();
+    final operadores =
+        usuarios.where((u) => u.esOperador && u.activo).toList();
 
     final unidad = selectedUnidadId != null
         ? unidades.where((u) => u.id == selectedUnidadId).firstOrNull

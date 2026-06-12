@@ -4,7 +4,7 @@ import '../../../../domain/entities/documento_vencimiento.dart';
 import '../../../../data/datasources/remote/firestore_datasource.dart';
 import '../../../../injection_container.dart';
 
-DocumentoVencimiento _docFromSnapshot(dynamic doc) {
+DocumentoVencimiento docFromSnapshot(dynamic doc) {
   final d = doc as fs.DocumentSnapshot;
   final data = d.data() as Map<String, dynamic>;
   final f = data['fecha_vencimiento'];
@@ -24,7 +24,7 @@ DocumentoVencimiento _docFromSnapshot(dynamic doc) {
 
 final documentosProvider = StreamProvider<List<DocumentoVencimiento>>((ref) {
   return sl<FirestoreDatasource>().watchDocumentos().map((list) =>
-    list.map(_docFromSnapshot).toList()
+    list.map(docFromSnapshot).toList()
   );
 });
 

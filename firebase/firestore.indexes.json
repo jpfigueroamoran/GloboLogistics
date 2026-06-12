@@ -18,11 +18,43 @@
       ]
     },
     {
+      "collectionGroup": "viajes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "estado",     "order": "ASCENDING" },
+        { "fieldPath": "updated_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "facturas_proveedores",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "estatus",           "order": "ASCENDING" },
+        { "fieldPath": "fecha_vencimiento", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "clientes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "activo", "order": "ASCENDING" },
+        { "fieldPath": "nombre", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "costos_operativos",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "viaje_id", "order": "ASCENDING" },
         { "fieldPath": "tipo",     "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "costos_operativos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tipo",       "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
       ]
     },
     {

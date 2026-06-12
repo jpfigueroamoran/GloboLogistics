@@ -14,7 +14,8 @@ class TriggerSosUsecase {
 
   TriggerSosUsecase(this._repository);
 
-  Future<Either<Failure, Unit>> call({
+  /// Devuelve el alertaId creado — la UI lo necesita para adjuntar evidencias.
+  Future<Either<Failure, String>> call({
     required String viajeId,
     required String operadorId,
     required String unidadId,
@@ -48,7 +49,7 @@ class TriggerSosUsecase {
         },
       );
 
-      return result.map((_) => unit);
+      return result;
     } catch (e) {
       return Left(ServerFailure(e.toString()));
     }
@@ -78,9 +79,14 @@ class TriggerSosUsecase {
     }
   }
 
-  void cancelarSOS() {
+  Future<void> cancelarSOS() async {
     _locationTimer?.cancel();
     _locationTimer = null;
+    final alertaId = _activeSosAlertaId;
     _activeSosAlertaId = null;
+    // Cerrar la alerta en Torre de Control como falsa alarma
+    if (alertaId != null) {
+      await _repository.cancelarAlerta(alertaId);
+    }
   }
 }

@@ -51,11 +51,13 @@ abstract final class OcrNormalizationService {
   }
 
   /// Extrae monto total ($XXX.XX o similar) del texto normalizado.
+  /// Las etiquetas se buscan sin distinguir mayúsculas: los tickets de
+  /// combustible mexicanos suelen imprimirse TODO EN MAYÚSCULAS.
   static double? extractMonto(String normalizedText) {
     final patterns = [
       RegExp(r'\$\s*([0-9]{1,6}\.?[0-9]{0,2})'),       // $1234.56
-      RegExp(r'[Tt]otal[:\s]*\$?\s*([0-9]{1,6}\.[0-9]{2})'), // total: 1234.56
-      RegExp(r'[Ii]mporte[:\s]*\$?\s*([0-9]{1,6}\.[0-9]{2})'),
+      RegExp(r'total[:\s]*\$?\s*([0-9]{1,6}\.[0-9]{2})', caseSensitive: false),
+      RegExp(r'importe[:\s]*\$?\s*([0-9]{1,6}\.[0-9]{2})', caseSensitive: false),
     ];
     for (final p in patterns) {
       final m = p.firstMatch(normalizedText);
@@ -69,9 +71,9 @@ abstract final class OcrNormalizationService {
   /// Extrae litros del texto normalizado.
   static double? extractLitros(String normalizedText) {
     final patterns = [
-      RegExp(r'([0-9]+\.?[0-9]{0,3})\s*(?:[Ll]ts?|[Ll]itros?|LTS)'),
-      RegExp(r'[Cc]antidad[:\s]*([0-9]+\.?[0-9]{0,3})'),
-      RegExp(r'[Vv]olumen[:\s]*([0-9]+\.?[0-9]{0,3})'),
+      RegExp(r'([0-9]+\.?[0-9]{0,3})\s*(?:lts?|litros?)', caseSensitive: false),
+      RegExp(r'cantidad[:\s]*([0-9]+\.?[0-9]{0,3})', caseSensitive: false),
+      RegExp(r'volumen[:\s]*([0-9]+\.?[0-9]{0,3})', caseSensitive: false),
     ];
     for (final p in patterns) {
       final m = p.firstMatch(normalizedText);
@@ -83,8 +85,9 @@ abstract final class OcrNormalizationService {
   /// Extrae precio por litro.
   static double? extractPrecioPorLitro(String normalizedText) {
     final patterns = [
-      RegExp(r'[Pp]recio[:\s]*\$?\s*([0-9]+\.[0-9]{2,4})\s*(?:/[Ll]|x[Ll]|por\s*[Ll])?'),
-      RegExp(r'\$\s*([0-9]{2}\.[0-9]{2,4})\s*/[Ll]'),
+      RegExp(r'precio[:\s]*\$?\s*([0-9]+\.[0-9]{2,4})\s*(?:/l|xl|por\s*l)?',
+          caseSensitive: false),
+      RegExp(r'\$\s*([0-9]{2}\.[0-9]{2,4})\s*/l', caseSensitive: false),
     ];
     for (final p in patterns) {
       final m = p.firstMatch(normalizedText);
@@ -100,7 +103,8 @@ abstract final class OcrNormalizationService {
   /// Extrae folio/número de ticket.
   static String? extractFolio(String normalizedText) {
     final patterns = [
-      RegExp(r'(?:[Ff]olio|[Tt]icket|[Ff]actura|[Nn]o\.?)[:\s]*([A-Z0-9\-]{4,20})'),
+      RegExp(r'(?:folio|ticket|factura|no\.?)[:\s]*([A-Z0-9\-]{4,20})',
+          caseSensitive: false),
       RegExp(r'#([A-Z0-9\-]{4,20})'),
     ];
     for (final p in patterns) {

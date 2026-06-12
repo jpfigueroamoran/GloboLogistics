@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/theme_constants.dart';
+import '../../../../core/services/automatizacion_service.dart';
 import '../../../../domain/entities/usuario_globo.dart';
 import '../../../../domain/entities/viaje.dart';
+import '../../../../injection_container.dart';
+import '../../../app/sos_overlay.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../providers/dashboard_provider.dart';
 import '../providers/mantenimiento_provider.dart';
@@ -13,6 +16,8 @@ import '../widgets/fleet_map_widget.dart';
 import '../widgets/notification_center_widget.dart';
 import 'score_operadores_page.dart';
 import 'despacho_page.dart';
+import 'flota_page.dart';
+import 'clientes_page.dart';
 import 'alertas_reglas_page.dart';
 import 'mantenimiento_page.dart';
 import 'documentos_page.dart';
@@ -26,13 +31,15 @@ import 'resumen_financiero_page.dart';
 import 'cierre_mensual_page.dart';
 import 'reportes_page.dart';
 import '../../../../core/providers/theme_mode_provider.dart';
-import '../../../../demo/demo_providers.dart' show demoUserProvider;
+import '../../../../demo/demo_providers.dart' show demoUserProvider, appModeProvider;
 
 // ── Índices de sección ────────────────────────────────────────────────────────
 
 enum _Seccion {
   overview,
   despacho,
+  flota,
+  clientes,
   scoreOperadores,
   mantenimiento,
   documentos,
@@ -61,6 +68,28 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
   _Seccion _seccion = _Seccion.overview;
   bool _sidebarExpanded = false;
 
+  // SOS ya vistos — para disparar el overlay solo con alertas nuevas
+  final Set<String> _sosVistos = {};
+  bool _sosInicializado = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Motor de automatización (reemplazo costo-cero de las Cloud Functions):
+    // corre mientras Torre de Control esté abierta, solo en producción.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !ref.read(appModeProvider)) {
+        sl<AutomatizacionService>().iniciar();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    sl<AutomatizacionService>().detener();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final metrics    = ref.watch(dashboardMetricsProvider);
@@ -69,6 +98,101 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
     final authState  = ref.watch(authStatusProvider);
     final esAdmin    = authState.usuario?.rol == RolUsuario.administrador;
 
+    // Overlay SOS en tiempo real desde el stream de Firestore — reemplazo
+    // costo-cero del push FCM (que requiere Cloud Functions / plan Blaze).
+    ref.listen<AsyncValue<List<Map<String, dynamic>>>>(alertasStreamProvider,
+        (_, next) {
+      final alertas = next.valueOrNull;
+      if (alertas == null) return;
+      final sosActivos = alertas.where((a) => a['tipo'] == 'sos');
+      if (!_sosInicializado) {
+        // Las alertas que ya existían al abrir el dashboard no disparan overlay
+        _sosInicializado = true;
+        _sosVistos.addAll(
+            sosActivos.map((a) => a['id'] as String? ?? '').where((id) => id.isNotEmpty));
+        return;
+      }
+      for (final a in sosActivos) {
+        final id = a['id'] as String? ?? '';
+        if (id.isEmpty || _sosVistos.contains(id)) continue;
+        _sosVistos.add(id);
+        SosOverlay.show(
+          context,
+          titulo:     '🚨 PROTOCOLO SOS ACTIVADO',
+          cuerpo:     'Un operador necesita asistencia inmediata.',
+          operadorId: a['operador_id'] as String? ?? '—',
+          unidadId:   a['unidad_id'] as String? ?? '—',
+          onAtender:  () => setState(() => _seccion = _Seccion.overview),
+        );
+      }
+    });
+
+    final esCompacto = MediaQuery.sizeOf(context).width < 800;
+
+    final contenido = Expanded(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 180),
+        child: KeyedSubtree(
+          key: ValueKey(_seccion),
+          child: _buildContent(),
+        ),
+      ),
+    );
+
+    // ── Teléfonos / ventanas angostas: navegación en Drawer ─────────────
+    if (esCompacto) {
+      return Scaffold(
+        appBar: AppBar(
+          backgroundColor: GloboColors.primary,
+          iconTheme: const IconThemeData(color: Colors.white),
+          titleSpacing: 0,
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'TORRE DE CONTROL',
+                style: GloboTypography.labelSmall.copyWith(
+                  color: GloboColors.textOnDarkSecondary,
+                  letterSpacing: 2,
+                  fontSize: 9,
+                ),
+              ),
+              Text(
+                _seccionLabel(_seccion),
+                style: GloboTypography.titleMedium
+                    .copyWith(color: Colors.white),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+          actions: [
+            const NotificationCenterWidget(),
+            _ThemeModeToggle(),
+            const SizedBox(width: 4),
+          ],
+        ),
+        drawer: Drawer(
+          width: 230,
+          child: _Sidebar(
+            selected: _seccion,
+            alertasCount: metrics.alertasActivas,
+            mantenimientoCriticos: criticos,
+            documentosVencidos: vencidos,
+            esAdmin: esAdmin,
+            expanded: true,
+            onSelect: (s) {
+              setState(() => _seccion = s);
+              Navigator.of(context).pop(); // cerrar drawer al navegar
+            },
+            onToggleExpanded: () {},
+          ),
+        ),
+        body: Column(children: [contenido]),
+      );
+    }
+
+    // ── Escritorio / tablet horizontal: sidebar fijo ─────────────────────
     return Scaffold(
       body: Row(
         children: [
@@ -90,15 +214,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                   metrics: metrics,
                   seccionLabel: _seccionLabel(_seccion),
                 ),
-                Expanded(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 180),
-                    child: KeyedSubtree(
-                      key: ValueKey(_seccion),
-                      child: _buildContent(),
-                    ),
-                  ),
-                ),
+                contenido,
               ],
             ),
           ),
@@ -110,6 +226,8 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
   String _seccionLabel(_Seccion s) => switch (s) {
         _Seccion.overview        => 'Dashboard Ejecutivo',
         _Seccion.despacho        => 'Centro de Despacho',
+        _Seccion.flota           => 'Gestión de Flota',
+        _Seccion.clientes        => 'Cartera de Clientes',
         _Seccion.scoreOperadores => 'Score de Operadores',
         _Seccion.mantenimiento   => 'Mantenimiento Predictivo',
         _Seccion.documentos      => 'Documentos y Vencimientos',
@@ -129,8 +247,11 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
         _Seccion.overview        => _OverviewContent(
             viajesSP: ref.watch(viajesActivosProvider),
             metrics: ref.watch(dashboardMetricsProvider),
+            onNavigate: (s) => setState(() => _seccion = s),
           ),
         _Seccion.despacho        => const DespachoPag(),
+        _Seccion.flota           => const FlotaPage(),
+        _Seccion.clientes        => const ClientesPage(),
         _Seccion.scoreOperadores => const ScoreOperadoresPage(),
         _Seccion.mantenimiento   => const MantenimientoPage(),
         _Seccion.documentos      => const DocumentosPage(),
@@ -169,6 +290,37 @@ class _Sidebar extends StatelessWidget {
     required this.onSelect,
     required this.onToggleExpanded,
   });
+
+  void _logout(WidgetRef ref) {
+    if (ref.read(appModeProvider)) {
+      ref.read(demoUserProvider.notifier).state = null;
+    } else {
+      signOut(ref.read(firebaseAuthProvider));
+    }
+  }
+
+  Future<void> _confirmarLogout(BuildContext context, WidgetRef ref) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('¿Cerrar sesión?'),
+        content: const Text(
+            'La automatización y las alertas en tiempo real se pausarán '
+            'hasta el siguiente acceso.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Cerrar sesión'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) _logout(ref);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -216,37 +368,51 @@ class _Sidebar extends StatelessWidget {
           ),
           const Divider(color: Colors.white24, height: 16),
 
-          // ── OPERACIONES ────────────────────────────────────────────
-          _GroupLabel('OPS', expanded: e),
-          _NavItem(icon: Icons.dashboard_outlined,   label: 'Overview',  expanded: e, isSelected: selected == _Seccion.overview,        onTap: () => onSelect(_Seccion.overview)),
-          _NavItem(icon: Icons.assignment_outlined,  label: 'Despacho',  expanded: e, isSelected: selected == _Seccion.despacho,         onTap: () => onSelect(_Seccion.despacho)),
-          _NavItem(icon: Icons.people_outline,       label: 'Score Op.', expanded: e, isSelected: selected == _Seccion.scoreOperadores,  onTap: () => onSelect(_Seccion.scoreOperadores)),
-          _NavItem(icon: Icons.build_outlined,       label: 'Mantto.',   expanded: e, isSelected: selected == _Seccion.mantenimiento,    badge: mantenimientoCriticos > 0 ? mantenimientoCriticos : null, onTap: () => onSelect(_Seccion.mantenimiento)),
-          _NavItem(icon: Icons.description_outlined, label: 'Docs.',     expanded: e, isSelected: selected == _Seccion.documentos,       badge: documentosVencidos > 0 ? documentosVencidos : null,       onTap: () => onSelect(_Seccion.documentos)),
+          // ── Items de navegación (scrollable para evitar overflow) ──
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // ── OPERACIONES ──────────────────────────────────────
+                  _GroupLabel('OPS', expanded: e),
+                  _NavItem(icon: Icons.dashboard_outlined,   label: 'Overview',  expanded: e, isSelected: selected == _Seccion.overview,        onTap: () => onSelect(_Seccion.overview)),
+                  _NavItem(icon: Icons.assignment_outlined,  label: 'Despacho',  expanded: e, isSelected: selected == _Seccion.despacho,         onTap: () => onSelect(_Seccion.despacho)),
+                  _NavItem(icon: Icons.local_shipping_outlined, label: 'Flota',  expanded: e, isSelected: selected == _Seccion.flota,            onTap: () => onSelect(_Seccion.flota)),
+                  _NavItem(icon: Icons.business_outlined,    label: 'Clientes',  expanded: e, isSelected: selected == _Seccion.clientes,         onTap: () => onSelect(_Seccion.clientes)),
+                  _NavItem(icon: Icons.people_outline,       label: 'Score Op.', expanded: e, isSelected: selected == _Seccion.scoreOperadores,  onTap: () => onSelect(_Seccion.scoreOperadores)),
+                  _NavItem(icon: Icons.build_outlined,       label: 'Mantto.',   expanded: e, isSelected: selected == _Seccion.mantenimiento,    badge: mantenimientoCriticos > 0 ? mantenimientoCriticos : null, onTap: () => onSelect(_Seccion.mantenimiento)),
+                  _NavItem(icon: Icons.description_outlined, label: 'Docs.',     expanded: e, isSelected: selected == _Seccion.documentos,       badge: documentosVencidos > 0 ? documentosVencidos : null,       onTap: () => onSelect(_Seccion.documentos)),
 
-          // ── FINANZAS ───────────────────────────────────────────────
-          _GroupLabel('FIN', expanded: e),
-          _NavItem(icon: Icons.bar_chart_outlined,     label: 'Resumen',     expanded: e, isSelected: selected == _Seccion.resumen,     onTap: () => onSelect(_Seccion.resumen)),
-          _NavItem(icon: Icons.receipt_long_outlined,  label: 'Facturación', expanded: e, isSelected: selected == _Seccion.facturacion, onTap: () => onSelect(_Seccion.facturacion)),
-          _NavItem(icon: Icons.account_balance_outlined, label: 'Finanzas',  expanded: e, isSelected: selected == _Seccion.finanzas,    onTap: () => onSelect(_Seccion.finanzas)),
-          _NavItem(icon: Icons.inventory_2_outlined,   label: 'Prov. & Inv.', expanded: e, isSelected: selected == _Seccion.proveedores, onTap: () => onSelect(_Seccion.proveedores)),
-          _NavItem(icon: Icons.check_box_outlined,     label: 'Cierre Mes',   expanded: e, isSelected: selected == _Seccion.cierreMensual, onTap: () => onSelect(_Seccion.cierreMensual)),
-          _NavItem(icon: Icons.analytics_outlined,     label: 'Reportes',     expanded: e, isSelected: selected == _Seccion.reportes,      onTap: () => onSelect(_Seccion.reportes)),
+                  // ── FINANZAS ─────────────────────────────────────────
+                  const SizedBox(height: 4),
+                  _GroupLabel('FIN', expanded: e),
+                  _NavItem(icon: Icons.bar_chart_outlined,       label: 'Resumen',     expanded: e, isSelected: selected == _Seccion.resumen,       onTap: () => onSelect(_Seccion.resumen)),
+                  _NavItem(icon: Icons.receipt_long_outlined,    label: 'Facturación', expanded: e, isSelected: selected == _Seccion.facturacion,   onTap: () => onSelect(_Seccion.facturacion)),
+                  _NavItem(icon: Icons.account_balance_outlined, label: 'Finanzas',    expanded: e, isSelected: selected == _Seccion.finanzas,      onTap: () => onSelect(_Seccion.finanzas)),
+                  _NavItem(icon: Icons.inventory_2_outlined,     label: 'Prov. & Inv.', expanded: e, isSelected: selected == _Seccion.proveedores, onTap: () => onSelect(_Seccion.proveedores)),
+                  _NavItem(icon: Icons.check_box_outlined,       label: 'Cierre Mes',  expanded: e, isSelected: selected == _Seccion.cierreMensual, onTap: () => onSelect(_Seccion.cierreMensual)),
+                  _NavItem(icon: Icons.analytics_outlined,       label: 'Reportes',    expanded: e, isSelected: selected == _Seccion.reportes,      onTap: () => onSelect(_Seccion.reportes)),
 
-          // ── CONTROL ────────────────────────────────────────────────
-          const Spacer(),
-          _GroupLabel('CTRL', expanded: e),
-          _NavItem(icon: Icons.warning_amber_outlined,  label: 'Alertas',   expanded: e, isSelected: selected == _Seccion.alertas,       badge: alertasCount > 0 ? alertasCount : null, onTap: () => onSelect(_Seccion.alertas)),
-          _NavItem(icon: Icons.fact_check_outlined,     label: 'Auditoría', expanded: e, isSelected: selected == _Seccion.auditoria,     onTap: () => onSelect(_Seccion.auditoria)),
-          _NavItem(icon: Icons.history_outlined,        label: 'Historial', expanded: e, isSelected: selected == _Seccion.historialViajes, onTap: () => onSelect(_Seccion.historialViajes)),
+                  // ── CONTROL ──────────────────────────────────────────
+                  const SizedBox(height: 4),
+                  _GroupLabel('CTRL', expanded: e),
+                  _NavItem(icon: Icons.warning_amber_outlined, label: 'Alertas',   expanded: e, isSelected: selected == _Seccion.alertas,        badge: alertasCount > 0 ? alertasCount : null, onTap: () => onSelect(_Seccion.alertas)),
+                  _NavItem(icon: Icons.fact_check_outlined,    label: 'Auditoría', expanded: e, isSelected: selected == _Seccion.auditoria,      onTap: () => onSelect(_Seccion.auditoria)),
+                  _NavItem(icon: Icons.history_outlined,       label: 'Historial', expanded: e, isSelected: selected == _Seccion.historialViajes, onTap: () => onSelect(_Seccion.historialViajes)),
 
-          // ── ADMIN ──────────────────────────────────────────────────
-          const Spacer(),
-          if (esAdmin) ...[
-            _GroupLabel('ADM', expanded: e),
-            _NavItem(icon: Icons.manage_accounts_outlined, label: 'Usuarios', expanded: e, isSelected: selected == _Seccion.usuarios, onTap: () => onSelect(_Seccion.usuarios)),
-          ],
-          const SizedBox(height: GloboSpacing.sm),
+                  // ── ADMIN ────────────────────────────────────────────
+                  if (esAdmin) ...[
+                    const SizedBox(height: 4),
+                    _GroupLabel('ADM', expanded: e),
+                    _NavItem(icon: Icons.manage_accounts_outlined, label: 'Usuarios', expanded: e, isSelected: selected == _Seccion.usuarios, onTap: () => onSelect(_Seccion.usuarios)),
+                  ],
+                ],
+              ),
+            ),
+          ),
+
+          // ── Footer fijo — siempre visible ──────────────────────────
           const Divider(color: Colors.white24, height: GloboSpacing.md),
           Consumer(
             builder: (context, ref, _) {
@@ -254,11 +420,11 @@ class _Sidebar extends StatelessWidget {
                 icon: Icons.logout,
                 label: 'Salir',
                 expanded: e,
-                onTap: () => ref.read(demoUserProvider.notifier).state = null,
+                onTap: () => _confirmarLogout(context, ref),
               );
             },
           ),
-          const SizedBox(height: GloboSpacing.lg),
+          const SizedBox(height: GloboSpacing.sm),
         ],
       ),
     );
@@ -622,14 +788,36 @@ class _ThemeModeToggle extends ConsumerWidget {
 class _OverviewContent extends StatelessWidget {
   final AsyncValue<List<Viaje>> viajesSP;
   final DashboardMetrics metrics;
+  final ValueChanged<_Seccion> onNavigate;
 
   const _OverviewContent({
     required this.viajesSP,
     required this.metrics,
+    required this.onNavigate,
   });
 
   @override
   Widget build(BuildContext context) {
+    final esCompacto = MediaQuery.sizeOf(context).width < 800;
+
+    // ── Teléfono: todo apilado y scrolleable ─────────────────────────────
+    if (esCompacto) {
+      return ListView(
+        padding: const EdgeInsets.only(bottom: GloboSpacing.lg),
+        children: [
+          _QuickActionsBar(onNavigate: onNavigate, compacto: true),
+          const SizedBox(height: GloboSpacing.sm),
+          const SizedBox(height: 240, child: FleetMapWidget()),
+          const SizedBox(height: GloboSpacing.sm),
+          SizedBox(height: 300, child: _ViajesTable(viajesSP: viajesSP)),
+          const SizedBox(height: 320, child: AlertaPanelWidget()),
+          const Divider(height: 0),
+          const SizedBox(height: 300, child: TcoPanelWidget()),
+        ],
+      );
+    }
+
+    // ── Escritorio: mapa + tabla con panel lateral ───────────────────────
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -637,6 +825,7 @@ class _OverviewContent extends StatelessWidget {
           flex: 3,
           child: Column(
             children: [
+              _QuickActionsBar(onNavigate: onNavigate),
               const Expanded(flex: 3, child: FleetMapWidget()),
               Expanded(flex: 2, child: _ViajesTable(viajesSP: viajesSP)),
             ],
@@ -656,6 +845,131 @@ class _OverviewContent extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ── Accesos rápidos del Overview ──────────────────────────────────────────────
+
+class _QuickActionsBar extends StatelessWidget {
+  final ValueChanged<_Seccion> onNavigate;
+  final bool compacto;
+  const _QuickActionsBar({required this.onNavigate, this.compacto = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final acciones = [
+      _QuickAction(
+        icon: Icons.add_road_outlined,
+        label: 'Nuevo viaje',
+        color: GloboColors.primary,
+        onTap: () => onNavigate(_Seccion.despacho),
+      ),
+      _QuickAction(
+        icon: Icons.local_shipping_outlined,
+        label: 'Flota',
+        color: GloboColors.estadoTransito,
+        onTap: () => onNavigate(_Seccion.flota),
+      ),
+      _QuickAction(
+        icon: Icons.add_business_outlined,
+        label: 'Clientes',
+        color: GloboColors.success,
+        onTap: () => onNavigate(_Seccion.clientes),
+      ),
+      _QuickAction(
+        icon: Icons.receipt_long_outlined,
+        label: 'Facturación',
+        color: GloboColors.info,
+        onTap: () => onNavigate(_Seccion.facturacion),
+      ),
+      _QuickAction(
+        icon: Icons.analytics_outlined,
+        label: 'Reportes',
+        color: GloboColors.accentBright,
+        onTap: () => onNavigate(_Seccion.reportes),
+      ),
+    ];
+
+    // En teléfono: dos columnas con alto táctil cómodo
+    if (compacto) {
+      final ancho =
+          (MediaQuery.sizeOf(context).width - GloboSpacing.md * 2 - 8) / 2;
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(
+            GloboSpacing.md, GloboSpacing.md, GloboSpacing.md, 0),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: acciones
+              .map((a) => SizedBox(width: ancho, child: a))
+              .toList(),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          GloboSpacing.md, GloboSpacing.md, GloboSpacing.md, 0),
+      child: Row(
+        children: acciones
+            .map((a) => Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: GloboSpacing.sm),
+                    child: a,
+                  ),
+                ))
+            .toList(),
+      ),
+    );
+  }
+}
+
+class _QuickAction extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _QuickAction({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: color.withAlpha(14),
+      borderRadius: GloboRadius.buttonRadius,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: GloboRadius.buttonRadius,
+        child: Container(
+          // Altura mínima táctil de 44 px (Material accesible)
+          constraints: const BoxConstraints(minHeight: 44),
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          decoration: BoxDecoration(
+            borderRadius: GloboRadius.buttonRadius,
+            border: Border.all(color: color.withAlpha(60)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  style: GloboTypography.labelSmall.copyWith(color: color),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,7 +6,6 @@ import 'package:image_picker/image_picker.dart';
 import '../../../../core/constants/theme_constants.dart';
 import '../../../../domain/entities/documento_vencimiento.dart';
 import '../../../../data/datasources/remote/firestore_datasource.dart';
-import '../../../../core/services/storage_service.dart';
 import '../../../../injection_container.dart';
 
 class CargarDocumentoDialog extends ConsumerStatefulWidget {
@@ -28,7 +28,12 @@ class _CargarDocumentoDialogState extends ConsumerState<CargarDocumentoDialog> {
 
   Future<void> _pickImage() async {
     final picker = ImagePicker();
-    final picked = await picker.pickImage(source: ImageSource.gallery);
+    // Compresión: el documento se guarda en Firestore (límite 1 MiB/doc)
+    final picked = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 60,
+      maxWidth: 1600,
+    );
     if (picked != null) {
       setState(() => _archivo = File(picked.path));
     }
@@ -57,9 +62,11 @@ class _CargarDocumentoDialogState extends ConsumerState<CargarDocumentoDialog> {
     setState(() => _isUploading = true);
 
     try {
-      // 1. Subir a Storage
-      final storage = sl<StorageService>();
-      final url = await storage.uploadDocumento(_archivo!, _entidadId.isEmpty ? 'unknown' : _entidadId);
+      // 1. Codificar archivo en base64 (plan gratuito, sin Storage)
+      final bytes = await _archivo!.readAsBytes();
+      if (bytes.length > 700 * 1024) {
+        throw Exception('El archivo excede 700 KB; usa una imagen más ligera.');
+      }
 
       // 2. Guardar en Firestore
       final remote = sl<FirestoreDatasource>();
@@ -69,7 +76,7 @@ class _CargarDocumentoDialogState extends ConsumerState<CargarDocumentoDialog> {
         'tipo':              _tipo.name,
         'fecha_vencimiento': _fechaVencimiento,
         'es_unidad':         _esUnidad,
-        'url_archivo': url,
+        'archivo_b64':       base64Encode(bytes),
       });
 
       if (mounted) {

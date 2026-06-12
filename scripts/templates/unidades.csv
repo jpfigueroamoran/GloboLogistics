@@ -1,0 +1,4 @@
+id,placas,modelo,anio,estado,operador_email,odometro_km,capacidad_tanque_litros
+u001,ABC-123-D,Kenworth T680,2021,activa,carlos.mendez@el-globo.net,148320,800
+u002,XYZ-456-E,Freightliner Cascadia,2022,activa,,89450,750
+u003,QRS-789-F,Volvo FH,2020,mantenimiento,,212100,700

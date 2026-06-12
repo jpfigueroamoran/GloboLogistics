@@ -1,0 +1,3 @@
+unidad_id,operador_email,origen_descripcion,destino_descripcion,estado,litros_cargados,litros_consumidos_tickets,fecha_inicio,fecha_fin,tco_combustible,tco_peajes,tco_otros
+u001,carlos.mendez@el-globo.net,"CDMX — Bodega Central Vallejo","Monterrey — Centro de Distribución",completado,280,158,2026-05-10,2026-05-11,14220,540,320
+u002,ana.garcia@el-globo.net,"Guadalajara — Planta Los Altos","CDMX — Bodega Sur Iztapalapa",completado,220,87,2026-05-12,2026-05-13,9570,480,150

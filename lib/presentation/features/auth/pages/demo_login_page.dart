@@ -51,6 +51,29 @@ class DemoLoginPage extends ConsumerWidget {
                   color: GloboColors.accentBright,
                   onTap: () => ref.read(demoUserProvider.notifier).state = adminDemo,
                 ),
+
+                const SizedBox(height: GloboSpacing.xl),
+                const Divider(),
+                const SizedBox(height: GloboSpacing.sm),
+                Center(
+                  child: TextButton.icon(
+                    icon: Icon(
+                      Icons.lock_outlined,
+                      size: 15,
+                      color: GloboColors.textTertiary,
+                    ),
+                    label: Text(
+                      'Volver a Modo Producción',
+                      style: GloboTypography.caption.copyWith(
+                        color: GloboColors.textTertiary,
+                      ),
+                    ),
+                    onPressed: () {
+                      ref.read(demoUserProvider.notifier).state = null;
+                      ref.read(appModeProvider.notifier).state = false;
+                    },
+                  ),
+                ),
               ],
             ),
           ),

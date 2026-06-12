@@ -12,4 +12,7 @@ abstract interface class ISeguridadRepository {
   Stream<List<AlertaSeguridad>> watchAlertasActivas();
   Future<Either<Failure, Unit>> atenderAlerta(
       String alertaId, String atendidaPor, String notas);
+
+  /// El operador cancela su propio SOS — la alerta se cierra como falsa alarma.
+  Future<Either<Failure, Unit>> cancelarAlerta(String alertaId);
 }

@@ -7,6 +7,11 @@ abstract final class AppConstants {
   static const String colAlertasSeguridad = 'alertas_seguridad';
   static const String colUsuarios = 'usuarios';
   static const String colClientes = 'clientes';
+  static const String colConfig = 'config';
+
+  // Config docs
+  static const String docEmpresa = 'empresa';
+  static const String docPricing = 'pricing';
 
   // SOS
   static const int sosIntervalSeconds = 5;

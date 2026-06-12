@@ -4,6 +4,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:get_it/get_it.dart';
 
 import 'core/network/connectivity_service.dart';
+import 'core/services/automatizacion_service.dart';
 import 'core/services/geocoding_service.dart';
 import 'core/services/storage_service.dart';
 import 'data/datasources/local/local_queue_datasource.dart';
@@ -48,6 +49,7 @@ Future<void> initDependencies() async {
   sl.registerLazySingleton(() => ConnectivityService());
   sl.registerLazySingleton(() => StorageService(sl()));
   sl.registerLazySingleton(() => GeocodingService());
+  sl.registerLazySingleton(() => AutomatizacionService(sl()));
 
   // ── DataSources ───────────────────────────────────────────────────────────
   sl.registerLazySingleton<FirestoreDatasource>(

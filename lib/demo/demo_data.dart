@@ -6,6 +6,7 @@ import '../domain/entities/factura_proveedor.dart';
 import '../domain/entities/item_inventario.dart';
 import '../domain/entities/poliza_seguro.dart';
 import '../domain/entities/unidad.dart';
+import '../domain/entities/usuario_globo.dart';
 import '../domain/entities/viaje.dart';
 
 abstract final class DemoData {
@@ -744,6 +745,37 @@ abstract final class DemoData {
   ];
 
   // ── Alertas ───────────────────────────────────────────────────────────────
+
+  static final List<UsuarioGlobo> usuarios = [
+    const UsuarioGlobo(
+      uid: 'op001',
+      email: 'carlos.mendoza@globo.mx',
+      nombre: 'Carlos Mendoza',
+      rol: RolUsuario.operador,
+      unidadAsignadaId: 'u001',
+    ),
+    const UsuarioGlobo(
+      uid: 'op002',
+      email: 'rodrigo.vargas@globo.mx',
+      nombre: 'Rodrigo Vargas',
+      rol: RolUsuario.operador,
+      unidadAsignadaId: 'u002',
+    ),
+    const UsuarioGlobo(
+      uid: 'op003',
+      email: 'ana.perez@globo.mx',
+      nombre: 'Ana Pérez',
+      rol: RolUsuario.operador,
+      unidadAsignadaId: 'u003',
+    ),
+    const UsuarioGlobo(
+      uid: 'op004',
+      email: 'miguel.torres@globo.mx',
+      nombre: 'Miguel Torres',
+      rol: RolUsuario.operador,
+      unidadAsignadaId: 'u004',
+    ),
+  ];
 
   static final List<AlertaSeguridad> alertas = [
     AlertaSeguridad(

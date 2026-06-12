@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/constants/theme_constants.dart';
+import '../../../../demo/demo_providers.dart' show appModeProvider;
+import '../../../../domain/entities/usuario_globo.dart';
 import '../../../app/router.dart';
+import '../../onboarding/providers/onboarding_provider.dart';
 import '../providers/auth_provider.dart';
 
 class AuthLandingPage extends ConsumerWidget {
@@ -35,6 +38,20 @@ class AuthLandingPage extends ConsumerWidget {
         return const _SplashScreen();
 
       case AuthStatus.torreControl:
+        // El administrador hace la configuración inicial la primera vez.
+        // En modo demo no aplica (los datos son mock).
+        final esDemo = ref.watch(appModeProvider);
+        final esAdmin = auth.usuario?.rol == RolUsuario.administrador;
+        if (!esDemo && esAdmin) {
+          final necesita = ref.watch(necesitaOnboardingProvider);
+          if (necesita == null) return const _SplashScreen(); // config cargando
+          if (necesita) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              context.go(AppRoutes.onboarding);
+            });
+            return const _SplashScreen();
+          }
+        }
         WidgetsBinding.instance.addPostFrameCallback((_) {
           context.go(AppRoutes.dashboard);
         });
@@ -256,6 +273,27 @@ class _LoginScreenState extends ConsumerState<_LoginScreen> {
                         style: GloboTypography.caption,
                       ),
                     ],
+                  ),
+                ),
+
+                const SizedBox(height: GloboSpacing.md),
+                const Divider(),
+                const SizedBox(height: GloboSpacing.xs),
+                Center(
+                  child: TextButton.icon(
+                    icon: Icon(
+                      Icons.science_outlined,
+                      size: 15,
+                      color: GloboColors.textTertiary,
+                    ),
+                    label: Text(
+                      'Probar Modo Demo (datos de ejemplo)',
+                      style: GloboTypography.caption.copyWith(
+                        color: GloboColors.textTertiary,
+                      ),
+                    ),
+                    onPressed: () =>
+                        ref.read(appModeProvider.notifier).state = true,
                   ),
                 ),
               ],

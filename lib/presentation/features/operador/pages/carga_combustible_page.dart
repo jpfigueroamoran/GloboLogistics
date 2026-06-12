@@ -1,6 +1,6 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart' show FieldValue;
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -59,7 +59,12 @@ class _CargaCombustiblePageState extends ConsumerState<CargaCombustiblePage> {
 
   Future<void> _capturar(ImageSource source) async {
     final picker = ImagePicker();
-    final file = await picker.pickImage(source: source, imageQuality: 85);
+    // Compresión agresiva: la foto se guarda en Firestore (límite 1 MiB/doc)
+    final file = await picker.pickImage(
+      source: source,
+      imageQuality: 55,
+      maxWidth: 1280,
+    );
     if (file == null) return;
 
     setState(() {
@@ -132,13 +137,13 @@ class _CargaCombustiblePageState extends ConsumerState<CargaCombustiblePage> {
     setState(() => _guardando = true);
 
     try {
-      // 1. Subir foto a Firebase Storage
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final storagePath =
-          'tickets_combustible/${widget.viajeId}/$timestamp.jpg';
-      final ref = FirebaseStorage.instance.ref().child(storagePath);
-      await ref.putFile(_imagenFile!);
-      final imagenUrl = await ref.getDownloadURL();
+      // 1. Codificar foto del ticket en base64 (plan gratuito, sin Storage)
+      final fotoBytes = await _imagenFile!.readAsBytes();
+      if (fotoBytes.length > 700 * 1024) {
+        throw Exception(
+            'La foto excede 700 KB; vuelve a capturarla con menos detalle.');
+      }
+      final fotoB64 = base64Encode(fotoBytes);
 
       // 2. Obtener posición actual para registrar dónde se cargó combustible
       Map<String, dynamic>? posicionActual;
@@ -168,7 +173,7 @@ class _CargaCombustiblePageState extends ConsumerState<CargaCombustiblePage> {
         'precio_litro': precio,
         'proveedor':   _estacionCtrl.text.trim(),
         'folio':       _folioCtrl.text.trim(),
-        'imagen_url':  imagenUrl,
+        'ticket_foto_b64': fotoB64,
         'verificado':  false,
         'sincronizado': true,
         'created_at':  FieldValue.serverTimestamp(),

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants/theme_constants.dart';
 import '../../core/providers/theme_mode_provider.dart';
 import '../../core/services/fcm_service.dart';
+import '../features/auth/providers/auth_provider.dart';
 import 'router.dart';
 import 'sos_overlay.dart';
 
@@ -31,6 +32,20 @@ class GloboApp extends ConsumerWidget {
           _showFcmBanner(message);
         }
       });
+    });
+
+    // Al perder la sesión (logout, cuenta desactivada o sin perfil) se regresa
+    // al login — el router no observa el estado de auth, así que la navegación
+    // debe hacerse aquí explícitamente.
+    ref.listen<AuthState>(authStatusProvider, (prev, next) {
+      final estabaDentro = prev?.status == AuthStatus.operador ||
+          prev?.status == AuthStatus.torreControl;
+      final perdioSesion = next.status == AuthStatus.unauthenticated ||
+          next.status == AuthStatus.desactivado ||
+          next.status == AuthStatus.sinPerfil;
+      if (estabaDentro && perdioSesion) {
+        ref.read(routerProvider).go(AppRoutes.auth);
+      }
     });
 
     return MaterialApp.router(

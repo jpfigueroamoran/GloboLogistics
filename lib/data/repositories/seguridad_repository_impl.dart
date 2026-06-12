@@ -69,6 +69,17 @@ class SeguridadRepositoryImpl implements ISeguridadRepository {
     }
   }
 
+  @override
+  Future<Either<Failure, Unit>> cancelarAlerta(String alertaId) async {
+    try {
+      await _remote.cancelarAlertaSOS(alertaId);
+      if (_alertaSosActivaId == alertaId) _alertaSosActivaId = null;
+      return const Right(unit);
+    } on ServerException catch (e) {
+      return Left(ServerFailure(e.message));
+    }
+  }
+
   String? get alertaSosActivaId => _alertaSosActivaId;
 
   AlertaSeguridad _mapToAlerta(Map<String, dynamic> data) {

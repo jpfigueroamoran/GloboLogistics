@@ -13,13 +13,15 @@ import 'carga_combustible_page.dart';
 import 'iniciar_viaje_page.dart';
 import 'sos_page.dart';
 import '../widgets/justificacion_dialog.dart';
-import '../../../../injection_container.dart';
-import '../../../../domain/repositories/i_viaje_repository.dart';
-import '../../../../demo/demo_providers.dart' show demoUserProvider;
+import '../../../../demo/demo_providers.dart' show demoUserProvider, appModeProvider;
+import '../../../../presentation/features/auth/providers/auth_provider.dart' show signOut, firebaseAuthProvider;
+import '../../../../presentation/features/torre_control/providers/dashboard_provider.dart' show viajeRepositoryProvider;
 import '../../../../presentation/features/torre_control/providers/operador_score_provider.dart';
 
 import '../widgets/connectivity_sync_listener.dart';
 import '../providers/gps_tracker_provider.dart';
+import '../providers/captura_remota_provider.dart';
+import '../widgets/captura_remota_overlay.dart';
 
 class OperadorHomePage extends ConsumerStatefulWidget {
   final String operadorId;
@@ -38,12 +40,17 @@ class OperadorHomePage extends ConsumerStatefulWidget {
 }
 
 class _OperadorHomePageState extends ConsumerState<OperadorHomePage> {
+  final Set<String> _capturasMostradas = {};
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(gpsTrackerProvider.notifier).startTracking(widget.unidadId);
+      // En demo no hay sesión Firebase: el ping GPS a Firestore solo generaría
+      // errores de permisos, así que únicamente se rastrea en producción.
+      if (!ref.read(appModeProvider)) {
+        ref.read(gpsTrackerProvider.notifier).startTracking(widget.unidadId);
+      }
     });
   }
 
@@ -51,6 +58,36 @@ class _OperadorHomePageState extends ConsumerState<OperadorHomePage> {
   Widget build(BuildContext context) {
     final state   = ref.watch(operadorProvider);
     final viajeSP = ref.watch(viajeActivoStreamProvider(widget.operadorId));
+    final isDemo  = ref.watch(appModeProvider);
+
+    // Escucha solicitudes de captura remota del supervisor (solo producción —
+    // en demo el stream consultaría Firestore real sin sesión).
+    if (!isDemo) {
+      ref.listen<AsyncValue<Map<String, dynamic>?>>(
+        capturaRemotaSolicitudProvider(widget.operadorId),
+        (_, next) {
+          final solicitud = next.valueOrNull;
+          if (solicitud == null) return;
+          final alertaId = solicitud['alertaId'] as String?;
+          if (alertaId == null) return;
+          final clave = '$alertaId-${solicitud['tipo']}';
+          if (_capturasMostradas.contains(clave)) return;
+          _capturasMostradas.add(clave);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (_) => CapturaRemotaOverlay(
+                alertaId:   alertaId,
+                tipo:       solicitud['tipo'] as String? ?? 'audio',
+                operadorId: widget.operadorId,
+              ),
+            );
+          });
+        },
+      );
+    }
 
     return ConnectivitySyncListener(
       child: Scaffold(
@@ -79,6 +116,35 @@ class _OperadorHomePageState extends ConsumerState<OperadorHomePage> {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmarLogout(BuildContext context, WidgetRef ref) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('¿Cerrar sesión?'),
+        content: const Text(
+            'Dejarás de transmitir tu posición GPS y de recibir '
+            'solicitudes de Torre de Control.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Cerrar sesión'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    ref.read(gpsTrackerProvider.notifier).stopTracking();
+    if (ref.read(appModeProvider)) {
+      ref.read(demoUserProvider.notifier).state = null;
+    } else {
+      signOut(ref.read(firebaseAuthProvider));
+    }
   }
 
   PreferredSizeWidget _buildAppBar(
@@ -111,9 +177,7 @@ class _OperadorHomePageState extends ConsumerState<OperadorHomePage> {
         IconButton(
           icon: const Icon(Icons.logout, color: Colors.white),
           tooltip: 'Cerrar sesión',
-          onPressed: () {
-            ref.read(demoUserProvider.notifier).state = null;
-          },
+          onPressed: () => _confirmarLogout(context, ref),
         ),
       ],
     );
@@ -372,8 +436,30 @@ class _OperadorBody extends ConsumerWidget {
   }
 
   Future<void> _finalizarViaje(BuildContext context, WidgetRef ref, Viaje viaje) async {
+    // Acción difícil de revertir: dispara TCO, factura y liberación de unidad
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('¿Finalizar el viaje?'),
+        content: const Text(
+            'Se calculará el costo total, se generará la factura del cliente '
+            'y la unidad quedará disponible para otro viaje.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Aún no'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Finalizar viaje'),
+          ),
+        ],
+      ),
+    );
+    if (confirmar != true || !context.mounted) return;
+
     final varianza = viaje.varianzaCombustible ?? 0.0;
-    
+
     if (varianza > 0.05) {
       final motivo = await showDialog<String>(
         context: context,
@@ -382,11 +468,11 @@ class _OperadorBody extends ConsumerWidget {
       );
       
       if (motivo != null && motivo.isNotEmpty) {
-        await sl<IViajeRepository>().justificarVarianza(viaje.id, motivo);
+        await ref.read(viajeRepositoryProvider).justificarVarianza(viaje.id, motivo);
       }
     }
-    
-    await sl<IViajeRepository>().actualizarEstado(viaje.id, EstadoViaje.completado);
+
+    await ref.read(viajeRepositoryProvider).actualizarEstado(viaje.id, EstadoViaje.completado);
     ref.read(operadorProvider.notifier).cambiarEstado(EstadoOperador.offline, viaje.id);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
