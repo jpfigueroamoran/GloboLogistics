@@ -53,6 +53,12 @@ import '../presentation/features/operador/pages/sos_page.dart';
 import '../presentation/features/auth/pages/auth_landing_page.dart';
 import '../presentation/features/auth/pages/demo_login_page.dart';
 import '../presentation/features/clientes/pages/alta_cliente_page.dart';
+import '../presentation/features/solicitante/pages/solicitante_home_page.dart';
+import '../presentation/features/solicitante/providers/solicitudes_provider.dart';
+import '../presentation/features/despachador/pages/despachador_home_page.dart';
+import '../presentation/features/mantenimiento/pages/mantenimiento_home_page.dart';
+import '../presentation/features/direccion/pages/direccion_home_page.dart';
+import '../domain/entities/solicitud_transporte.dart';
 import '../presentation/features/onboarding/pages/onboarding_wizard_page.dart';
 import 'demo_data.dart';
 
@@ -209,6 +215,24 @@ class _DemoViajeRepository implements IViajeRepository {
       _viajesActivosLocal[i] = _viajesActivosLocal[i].copyWith(
         nivelAlerta: NivelAlertaViaje.bandajaRoja,
         varianzaCombustible: varianza,
+      );
+      _emitViajes();
+    }
+    return const Right(unit);
+  }
+
+  @override
+  Future<Either<Failure, Unit>> actualizarSeguimiento(
+          String viajeId, SeguimientoViaje seg) async {
+    final i = _viajesActivosLocal.indexWhere((v) => v.id == viajeId);
+    if (i >= 0) {
+      _viajesActivosLocal[i] = _viajesActivosLocal[i].copyWith(
+        seguimiento: SeguimientoViaje(
+          zona: seg.zona,
+          distanciaDestinoM: seg.distanciaDestinoM,
+          etaMin: seg.etaMin,
+          actualizadoEn: DateTime.now(),
+        ),
       );
       _emitViajes();
     }
@@ -497,6 +521,34 @@ const operadorDemo = UsuarioGlobo(
   unidadAsignadaId: 'u001',
 );
 
+const solicitanteDemo = UsuarioGlobo(
+  uid:    'demo-sol',
+  email:  'almacen@el-globo.mx',
+  nombre: 'Laura T. (Almacén)',
+  rol:    RolUsuario.solicitante,
+);
+
+const despachadorDemo = UsuarioGlobo(
+  uid:    'demo-desp',
+  email:  'despacho@el-globo.mx',
+  nombre: 'Pedro L. (Despachador)',
+  rol:    RolUsuario.despachador,
+);
+
+const mantenimientoDemo = UsuarioGlobo(
+  uid:    'demo-mant',
+  email:  'taller@el-globo.mx',
+  nombre: 'Jorge R. (Taller)',
+  rol:    RolUsuario.mantenimiento,
+);
+
+const direccionDemo = UsuarioGlobo(
+  uid:    'demo-dir',
+  email:  'direccion@el-globo.mx',
+  nombre: 'Marta S. (Dirección)',
+  rol:    RolUsuario.direccion,
+);
+
 final demoUserProvider = StateProvider<UsuarioGlobo?>((ref) => null);
 
 /// true = modo demo (datos de ejemplo), false = modo producción con Firebase.
@@ -515,9 +567,7 @@ List<Override> get demoOverrides => [
             return const AuthState(status: AuthStatus.unauthenticated);
           }
           return AuthState(
-            status: currentDemoUser.rol == RolUsuario.operador
-                ? AuthStatus.operador
-                : AuthStatus.torreControl,
+            status: statusParaRol(currentDemoUser.rol),
             usuario: currentDemoUser,
           );
         }
@@ -538,8 +588,7 @@ List<Override> get demoOverrides => [
         final perfil = profileAsync.valueOrNull;
         if (perfil == null) return const AuthState(status: AuthStatus.sinPerfil);
         if (!perfil.activo) return const AuthState(status: AuthStatus.desactivado);
-        if (perfil.esOperador) return AuthState(status: AuthStatus.operador, usuario: perfil);
-        return AuthState(status: AuthStatus.torreControl, usuario: perfil);
+        return AuthState(status: statusParaRol(perfil.rol), usuario: perfil);
       }),
       viajeRepositoryProvider.overrideWith((ref) {
         final isDemo = ref.watch(appModeProvider);
@@ -692,9 +741,58 @@ List<Override> get demoOverrides => [
                 .toList()
               ..sort((a, b) => a.nombre.compareTo(b.nombre)));
       }),
+      colaSolicitudesProvider.overrideWith((ref) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? Stream.value(_demoSolicitudes)
+            : sl<FirestoreDatasource>().watchSolicitudes();
+      }),
+      misSolicitudesProvider.overrideWith((ref, uid) {
+        final isDemo = ref.watch(appModeProvider);
+        return isDemo
+            ? Stream.value(
+                _demoSolicitudes.where((s) => s.solicitanteUid == uid).toList())
+            : sl<FirestoreDatasource>().watchSolicitudesPorSolicitante(uid);
+      }),
     ];
 
+// Solicitudes de ejemplo para el modo demo (solo lectura).
+final List<SolicitudTransporte> _demoSolicitudes = [
+  SolicitudTransporte(
+    id: 'sol-1',
+    solicitanteUid: solicitanteDemo.uid,
+    solicitanteNombre: solicitanteDemo.nombre,
+    material: 'Refacciones línea 3',
+    origen: 'Almacén Central',
+    destino: 'Planta Norte',
+    prioridad: PrioridadSolicitud.alta,
+    estado: EstadoSolicitud.enRuta,
+    createdAt: DateTime.now().subtract(const Duration(hours: 3)),
+  ),
+  SolicitudTransporte(
+    id: 'sol-2',
+    solicitanteUid: solicitanteDemo.uid,
+    solicitanteNombre: solicitanteDemo.nombre,
+    material: 'Tarimas de empaque',
+    origen: 'Bodega Sur',
+    destino: 'Centro de Distribución',
+    prioridad: PrioridadSolicitud.normal,
+    estado: EstadoSolicitud.pendiente,
+    createdAt: DateTime.now().subtract(const Duration(minutes: 40)),
+  ),
+];
+
 // ── Router de demo ───────────────────────────────────────────────
+
+String _rutaDemoParaRol(RolUsuario rol) => switch (rol) {
+      RolUsuario.operador      => AppRoutes.operador,
+      RolUsuario.solicitante   => AppRoutes.solicitante,
+      RolUsuario.despachador   => AppRoutes.despachador,
+      RolUsuario.mantenimiento => AppRoutes.mantenimiento,
+      RolUsuario.direccion     => AppRoutes.direccion,
+      RolUsuario.supervisor    => AppRoutes.dashboard,
+      RolUsuario.administrador => AppRoutes.dashboard,
+    };
 
 GoRouter _demoRouter(Ref ref) {
   final isDemo = ref.watch(appModeProvider);
@@ -702,9 +800,7 @@ GoRouter _demoRouter(Ref ref) {
 
   String initial = AppRoutes.auth;
   if (isDemo && currentDemoUser != null) {
-    initial = currentDemoUser.rol == RolUsuario.operador
-        ? AppRoutes.operador
-        : AppRoutes.dashboard;
+    initial = _rutaDemoParaRol(currentDemoUser.rol);
   }
 
   return GoRouter(
@@ -734,6 +830,28 @@ GoRouter _demoRouter(Ref ref) {
             builder: (_, __) => const AuditoriaPage(),
           ),
         ],
+      ),
+      GoRoute(
+        path: AppRoutes.solicitante,
+        builder: (_, state) {
+          final extra = state.extra as Map<String, String>? ?? {};
+          return SolicitanteHomePage(
+            solicitanteUid: extra['uid']    ?? solicitanteDemo.uid,
+            nombre:         extra['nombre'] ?? solicitanteDemo.nombre,
+          );
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.despachador,
+        builder: (_, __) => const DespachadorHomePage(),
+      ),
+      GoRoute(
+        path: AppRoutes.mantenimiento,
+        builder: (_, __) => const MantenimientoHomePage(),
+      ),
+      GoRoute(
+        path: AppRoutes.direccion,
+        builder: (_, __) => const DireccionHomePage(),
       ),
       GoRoute(
         path: AppRoutes.operador,

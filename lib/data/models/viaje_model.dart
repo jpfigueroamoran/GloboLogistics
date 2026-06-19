@@ -100,6 +100,8 @@ class ViajeModel extends Viaje {
     required super.tco,
     super.observaciones,
     super.justificacionVarianza,
+    super.seguimiento,
+    super.solicitudId,
     required super.createdAt,
     required super.updatedAt,
   });
@@ -107,6 +109,16 @@ class ViajeModel extends Viaje {
   factory ViajeModel.fromFirestore(fs.DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
     return ViajeModel.fromMap(data, doc.id);
+  }
+
+  static SeguimientoViaje? _parseSeguimiento(dynamic raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    return SeguimientoViaje(
+      zona: raw['zona'] as String? ?? 'enTransito',
+      distanciaDestinoM: (raw['distancia_destino_m'] as num?)?.toDouble(),
+      etaMin: (raw['eta_min'] as num?)?.toInt(),
+      actualizadoEn: (raw['actualizado_en'] as fs.Timestamp?)?.toDate(),
+    );
   }
 
   factory ViajeModel.fromMap(Map<String, dynamic> map, String id) {
@@ -148,6 +160,8 @@ class ViajeModel extends Viaje {
       tco: TcoViajeModel.fromMap(map['tco'] as Map<String, dynamic>?),
       observaciones: map['observaciones'] as String?,
       justificacionVarianza: map['justificacion_varianza'] as String?,
+      seguimiento: _parseSeguimiento(map['seguimiento']),
+      solicitudId: map['solicitud_id'] as String?,
       createdAt:
           (map['created_at'] as fs.Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt:
@@ -199,6 +213,7 @@ class ViajeModel extends Viaje {
           .toList(),
       'observaciones':  observaciones,
       'justificacion_varianza': justificacionVarianza,
+      if (solicitudId != null) 'solicitud_id': solicitudId,
       'created_at':     fs.Timestamp.fromDate(createdAt),
       'updated_at':     fs.FieldValue.serverTimestamp(),
     };

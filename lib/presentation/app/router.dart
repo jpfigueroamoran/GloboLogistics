@@ -7,6 +7,10 @@ import '../features/onboarding/pages/onboarding_wizard_page.dart';
 import '../features/operador/pages/iniciar_viaje_page.dart';
 import '../features/operador/pages/operador_home_page.dart';
 import '../features/operador/pages/sos_page.dart';
+import '../features/solicitante/pages/solicitante_home_page.dart';
+import '../features/despachador/pages/despachador_home_page.dart';
+import '../features/mantenimiento/pages/mantenimiento_home_page.dart';
+import '../features/direccion/pages/direccion_home_page.dart';
 import '../features/torre_control/pages/dashboard_page.dart';
 import '../features/torre_control/pages/auditoria_page.dart';
 
@@ -23,6 +27,10 @@ abstract final class AppRoutes {
   static const operador      = '/operador';
   static const sos           = '/operador/sos';
   static const iniciarViaje  = '/operador/iniciar-viaje';
+  static const solicitante   = '/solicitante';
+  static const despachador   = '/despachador';
+  static const mantenimiento = '/mantenimiento';
+  static const direccion     = '/direccion';
   static const altaCliente   = AltaClientePage.routeName;
 }
 
@@ -58,6 +66,36 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (_, __) => const AuditoriaPage(),
           ),
         ],
+      ),
+
+      // Solicitante (Mobile / Web)
+      GoRoute(
+        path: AppRoutes.solicitante,
+        builder: (_, state) {
+          final extra = state.extra as Map<String, String>? ?? {};
+          return SolicitanteHomePage(
+            solicitanteUid: extra['uid'] ?? '',
+            nombre:         extra['nombre'] ?? 'Solicitante',
+          );
+        },
+      ),
+
+      // Despachador (Tablet / Web)
+      GoRoute(
+        path: AppRoutes.despachador,
+        builder: (_, __) => const DespachadorHomePage(),
+      ),
+
+      // Mantenimiento (Tablet)
+      GoRoute(
+        path: AppRoutes.mantenimiento,
+        builder: (_, __) => const MantenimientoHomePage(),
+      ),
+
+      // Dirección (Escritorio · solo lectura)
+      GoRoute(
+        path: AppRoutes.direccion,
+        builder: (_, __) => const DireccionHomePage(),
       ),
 
       // Módulo Operador (Mobile)

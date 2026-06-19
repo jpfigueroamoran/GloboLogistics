@@ -7,6 +7,7 @@ abstract final class AppConstants {
   static const String colAlertasSeguridad = 'alertas_seguridad';
   static const String colUsuarios = 'usuarios';
   static const String colClientes = 'clientes';
+  static const String colSolicitudes = 'solicitudes_transporte';
   static const String colConfig = 'config';
 
   // Config docs

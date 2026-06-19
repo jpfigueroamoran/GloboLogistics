@@ -15,6 +15,12 @@ abstract interface class IViajeRepository {
   Future<Either<Failure, Unit>> actualizarTco(String viajeId, TcoViaje tco);
   Future<Either<Failure, Unit>> marcarBanderaRoja(
       String viajeId, double varianza);
+
+  /// El dispositivo del operador publica progreso en vivo (zona/ETA) para que
+  /// Torre de Control lo vea. Falla en silencio sin red — se reintenta solo.
+  Future<Either<Failure, Unit>> actualizarSeguimiento(
+      String viajeId, SeguimientoViaje seguimiento);
+
   Stream<List<Viaje>> watchViajesPorOperador(String operadorId);
   Stream<List<Viaje>> watchViajesCompletados();
 }

@@ -4,6 +4,17 @@ import '../../../../core/constants/theme_constants.dart';
 import '../../../../domain/entities/usuario_globo.dart';
 import '../providers/usuarios_provider.dart';
 
+/// Color de chip por rol — consistente en toda la gestión de usuarios.
+Color rolColor(RolUsuario r) => switch (r) {
+      RolUsuario.administrador => GloboColors.sosPrimary,
+      RolUsuario.direccion     => GloboColors.accentBright,
+      RolUsuario.supervisor    => GloboColors.primaryAccent,
+      RolUsuario.despachador   => GloboColors.info,
+      RolUsuario.mantenimiento => GloboColors.warning,
+      RolUsuario.operador      => GloboColors.steelGray,
+      RolUsuario.solicitante   => GloboColors.success,
+    };
+
 class UsuariosPage extends ConsumerWidget {
   const UsuariosPage({super.key});
 
@@ -148,11 +159,7 @@ class _UsuarioRow extends ConsumerWidget {
   final UsuarioGlobo usuario;
   const _UsuarioRow({required this.usuario});
 
-  Color get _rolColor => switch (usuario.rol) {
-        RolUsuario.administrador => GloboColors.sosPrimary,
-        RolUsuario.supervisor    => GloboColors.primaryAccent,
-        RolUsuario.operador      => GloboColors.steelGray,
-      };
+  Color get _rolColor => rolColor(usuario.rol);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -285,28 +292,22 @@ class _RolDropdown extends StatelessWidget {
   final ValueChanged<RolUsuario> onChanged;
   const _RolDropdown({required this.rol, required this.onChanged});
 
-  Color _color(RolUsuario r) => switch (r) {
-        RolUsuario.administrador => GloboColors.sosPrimary,
-        RolUsuario.supervisor    => GloboColors.primaryAccent,
-        RolUsuario.operador      => GloboColors.steelGray,
-      };
-
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: _color(rol).withAlpha(20),
+        color: rolColor(rol).withAlpha(20),
         borderRadius: GloboRadius.chipRadius,
-        border: Border.all(color: _color(rol).withAlpha(60)),
+        border: Border.all(color: rolColor(rol).withAlpha(60)),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<RolUsuario>(
           value: rol,
           isDense: true,
           icon: Icon(Icons.expand_more,
-              size: 14, color: _color(rol)),
-          style: GloboTypography.labelSmall.copyWith(color: _color(rol)),
+              size: 14, color: rolColor(rol)),
+          style: GloboTypography.labelSmall.copyWith(color: rolColor(rol)),
           items: RolUsuario.values
               .map((r) => DropdownMenuItem(
                     value: r,

@@ -38,6 +38,10 @@ class _FakeViajeRepo implements IViajeRepository {
   Future<Either<Failure, Unit>> justificarVarianza(String v, String m) async =>
       const Right(unit);
   @override
+  Future<Either<Failure, Unit>> actualizarSeguimiento(
+          String v, SeguimientoViaje s) async =>
+      const Right(unit);
+  @override
   Stream<List<Viaje>> watchViajesActivos() => const Stream.empty();
   @override
   Stream<List<Viaje>> watchViajesCompletados() => const Stream.empty();

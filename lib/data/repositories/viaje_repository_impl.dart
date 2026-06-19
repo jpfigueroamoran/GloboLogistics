@@ -58,6 +58,7 @@ class ViajeRepositoryImpl implements IViajeRepository {
         nivelAlerta: viaje.nivelAlerta,
         tco: viaje.tco,
         observaciones: viaje.observaciones,
+        solicitudId: viaje.solicitudId,
         createdAt: viaje.createdAt,
         updatedAt: viaje.updatedAt,
       );
@@ -127,6 +128,22 @@ class ViajeRepositoryImpl implements IViajeRepository {
       return const Right(unit);
     } on ServerException catch (e) {
       return Left(ServerFailure(e.message));
+    }
+  }
+
+  @override
+  Future<Either<Failure, Unit>> actualizarSeguimiento(
+      String viajeId, SeguimientoViaje seg) async {
+    try {
+      await _remote.setSeguimientoViaje(viajeId, {
+        'zona': seg.zona,
+        if (seg.distanciaDestinoM != null)
+          'distancia_destino_m': seg.distanciaDestinoM,
+        if (seg.etaMin != null) 'eta_min': seg.etaMin,
+      });
+      return const Right(unit);
+    } catch (e) {
+      return Left(ServerFailure(e.toString()));
     }
   }
 }

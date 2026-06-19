@@ -40,8 +40,14 @@ class FcmService {
   }
 
   static Future<void> init() async {
+    // En web no hay service worker de FCM configurado: saltamos todo el
+    // setup para no tronar el arranque (las alertas SOS llegan por stream).
+    if (kIsWeb) {
+      debugPrint('[FCM] Push deshabilitado en web — alertas vía stream.');
+      return;
+    }
     // FCM no tiene implementación nativa en Windows/Linux
-    if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) {
+    if (Platform.isWindows || Platform.isLinux) {
       debugPrint('[FCM] Push notifications skipped on this desktop platform.');
       return;
     }

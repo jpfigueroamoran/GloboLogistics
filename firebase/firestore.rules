@@ -63,7 +63,10 @@ service cloud.firestore {
       allow update: if isAdministrador() ||
         // El usuario actualiza su propio token FCM y registro de acceso
         (request.auth.uid == userId &&
-         onlyAllowedFields(['fcm_token', 'ultimo_acceso']));
+         onlyAllowedFields(['fcm_token', 'ultimo_acceso'])) ||
+        // El operador registra a qué vehículo se asoció al escanear su QR
+        (request.auth.uid == userId && isOperador() &&
+         onlyAllowedFields(['unidad_asignada_id']));
       allow delete: if isAdministrador();
     }
 
@@ -78,7 +81,24 @@ service cloud.firestore {
       allow update: if isSupervisorOrAdmin() ||
         (isOperador() &&
          resource.data.operador_asignado_id == request.auth.uid &&
-         onlyAllowedFields(['ultima_posicion', 'ultima_actualizacion_posicion']));
+         onlyAllowedFields(['ultima_posicion', 'ultima_actualizacion_posicion'])) ||
+        // El operador RECLAMA una unidad al escanear su QR — solo a su propio
+        // nombre (el QR físico en la cabina garantiza que es el vehículo real)
+        (isOperador() &&
+         onlyAllowedFields(['operador_asignado_id']) &&
+         request.resource.data.operador_asignado_id == request.auth.uid) ||
+        // El operador LIBERA la unidad que tenía asignada (al cambiar de vehículo)
+        (isOperador() &&
+         onlyAllowedFields(['operador_asignado_id']) &&
+         resource.data.operador_asignado_id == request.auth.uid &&
+         request.resource.data.operador_asignado_id == null) ||
+        // Mantenimiento registra el servicio: estado y próximo odómetro
+        (hasRole('mantenimiento') &&
+         onlyAllowedFields([
+           'estado',
+           'proximo_mantenimiento_odometro',
+           'ultima_actualizacion'
+         ]));
 
       // Supervisores dan de alta unidades desde Gestión de Flota
       allow create: if isSupervisorOrAdmin();
@@ -91,9 +111,11 @@ service cloud.firestore {
         // Operador solo lee sus propios viajes
         (isOperador() && resource.data.operador_id == request.auth.uid);
 
-      allow create: if isSupervisorOrAdmin();
+      // Supervisión/admin y el despachador crean viajes (desde una solicitud)
+      allow create: if isSupervisorOrAdmin() || hasRole('despachador');
 
-      // Operador solo puede actualizar estado y campos operativos
+      // Operador solo puede actualizar estado, campos operativos y el
+      // seguimiento en vivo (zona/ETA) que alimenta el tablero del supervisor
       allow update: if isSupervisorOrAdmin() ||
         (isOperador() &&
          resource.data.operador_id == request.auth.uid &&
@@ -102,6 +124,7 @@ service cloud.firestore {
            'fecha_inicio',
            'fecha_fin',
            'observaciones',
+           'seguimiento',
            'updated_at'
          ]));
 
@@ -218,6 +241,27 @@ service cloud.firestore {
     // ── Inventario ────────────────────────────────────────────────────────
     match /inventario/{docId} {
       allow read, write: if isSupervisorOrAdmin();
+    }
+
+    // ── Solicitudes de transporte (intake interno) ───────────────────────────
+    match /solicitudes_transporte/{solicitudId} {
+      function isDespachadorOrUp() {
+        return hasAnyRole(['despachador', 'supervisor', 'administrador']);
+      }
+
+      // El solicitante ve las suyas; despacho/supervisión/admin ven todas
+      allow read: if isDespachadorOrUp() ||
+        (isAuthenticated() &&
+         resource.data.solicitante_uid == request.auth.uid);
+
+      // El solicitante crea su propia solicitud
+      allow create: if isAuthenticated() &&
+        request.resource.data.solicitante_uid == request.auth.uid &&
+        request.resource.data.estado == 'pendiente';
+
+      // El despachador (o superior) avanza el estado; el solicitante no edita
+      allow update: if isDespachadorOrUp();
+      allow delete: if isAdministrador();
     }
 
     // ── Clientes ─────────────────────────────────────────────────────────────

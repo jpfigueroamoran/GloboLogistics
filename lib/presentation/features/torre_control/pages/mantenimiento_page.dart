@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:shimmer/shimmer.dart';
 import '../../../../core/constants/theme_constants.dart';
+import '../../../../data/datasources/remote/firestore_datasource.dart';
+import '../../../../demo/demo_providers.dart' show appModeProvider;
 import '../../../../domain/entities/mantenimiento.dart';
+import '../../../../injection_container.dart';
 import '../providers/mantenimiento_provider.dart';
 import '../providers/unidades_provider.dart';
 
@@ -116,6 +120,75 @@ class _MantenimientoCard extends StatelessWidget {
     return GloboColors.successAccent;
   }
 
+  /// Registra el servicio realizado: la unidad vuelve a estar activa y se
+  /// fija el odómetro del próximo servicio. Cierra el ciclo de mantenimiento.
+  Future<void> _registrarServicio(BuildContext context, WidgetRef ref) async {
+    if (ref.read(appModeProvider)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('El registro de servicio es en modo producción'),
+      ));
+      return;
+    }
+    final fmt = NumberFormat.decimalPattern('es_MX');
+    final sugerido = item.odometroActual + 20000;
+    final ctrl = TextEditingController(text: '$sugerido');
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Registrar servicio · ${item.placas}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Odómetro actual: ${fmt.format(item.odometroActual)} km',
+                style: GloboTypography.caption),
+            const SizedBox(height: GloboSpacing.md),
+            TextField(
+              controller: ctrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Próximo servicio (odómetro km)',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: GloboColors.success,
+                foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Marcar atendida'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    final proximo = double.tryParse(ctrl.text.trim()) ?? sugerido.toDouble();
+    try {
+      await sl<FirestoreDatasource>().actualizarUnidad(item.unidadId, {
+        'estado': 'activa',
+        'proximo_mantenimiento_odometro': proximo,
+      });
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('${item.placas} lista — próximo servicio a '
+            '${fmt.format(proximo.round())} km'),
+        backgroundColor: GloboColors.success,
+      ));
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    }
+  }
+
   String get _estadoLabel => switch (item.estado) {
         EstadoMantenimiento.pendiente   => 'Pendiente',
         EstadoMantenimiento.programado  => 'Programado',
@@ -195,13 +268,18 @@ class _MantenimientoCard extends StatelessWidget {
                   style: GloboTypography.labelSmall
                       .copyWith(color: _urgenciaColor),
                 ),
-                TextButton(
-                  style: TextButton.styleFrom(
-                    minimumSize: const Size(0, 28),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                Consumer(
+                  builder: (context, ref, _) => ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(0, 30),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      backgroundColor: GloboColors.success,
+                      foregroundColor: Colors.white,
+                    ),
+                    icon: const Icon(Icons.build_circle_outlined, size: 15),
+                    label: const Text('Registrar servicio'),
+                    onPressed: () => _registrarServicio(context, ref),
                   ),
-                  onPressed: () {},
-                  child: const Text('Programar'),
                 ),
               ],
             ),

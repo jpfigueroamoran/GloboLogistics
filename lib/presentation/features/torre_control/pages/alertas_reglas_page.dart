@@ -67,10 +67,12 @@ class _Header extends StatelessWidget {
             ],
           ),
         ),
-        ElevatedButton.icon(
-          icon: const Icon(Icons.add, size: 16),
-          label: const Text('Nueva Regla'),
-          onPressed: () {},
+        Consumer(
+          builder: (context, ref, _) => ElevatedButton.icon(
+            icon: const Icon(Icons.add, size: 16),
+            label: const Text('Nueva Regla'),
+            onPressed: () => mostrarEditorRegla(context, ref),
+          ),
         ),
       ],
     );
@@ -125,6 +127,7 @@ class _ReglaRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return ListTile(
+      onTap: () => mostrarEditorRegla(context, ref, regla: regla),
       leading: Container(
         width: 40,
         height: 40,
@@ -197,6 +200,206 @@ class _AccionesChips extends StatelessWidget {
                 ),
               ))
           .toList(),
+    );
+  }
+}
+
+// ── Editor de reglas (crear / editar / eliminar) ─────────────────────────────
+
+void mostrarEditorRegla(BuildContext context, WidgetRef ref,
+    {ReglaAlerta? regla}) {
+  showDialog<void>(
+    context: context,
+    builder: (_) => _ReglaEditorDialog(regla: regla),
+  );
+}
+
+String _condicionLabel(CondicionAlerta c) => switch (c) {
+      CondicionAlerta.varianzaCombustible => 'Varianza de combustible',
+      CondicionAlerta.sosActivados        => 'SOS activados',
+      CondicionAlerta.banderasRojas       => 'Banderas rojas',
+      CondicionAlerta.tiempoSinActividad  => 'Tiempo sin actividad',
+      CondicionAlerta.odometroAlto        => 'Odómetro alto',
+    };
+
+// Pista de unidad del umbral según la condición
+String _umbralHint(CondicionAlerta c) => switch (c) {
+      CondicionAlerta.varianzaCombustible => 'Fracción (0.08 = 8 %)',
+      CondicionAlerta.sosActivados        => 'Número de SOS en el mes',
+      CondicionAlerta.banderasRojas       => 'Banderas consecutivas',
+      CondicionAlerta.tiempoSinActividad  => 'Minutos sin GPS',
+      CondicionAlerta.odometroAlto        => 'Kilómetros',
+    };
+
+String _accionLabel(AccionAlerta a) => switch (a) {
+      AccionAlerta.notificarSupervisor => 'Notificar al supervisor',
+      AccionAlerta.bloquearAsignacion  => 'Bloquear asignación',
+      AccionAlerta.generarAuditoria    => 'Generar auditoría',
+    };
+
+class _ReglaEditorDialog extends ConsumerStatefulWidget {
+  final ReglaAlerta? regla;
+  const _ReglaEditorDialog({this.regla});
+
+  @override
+  ConsumerState<_ReglaEditorDialog> createState() => _ReglaEditorDialogState();
+}
+
+class _ReglaEditorDialogState extends ConsumerState<_ReglaEditorDialog> {
+  late final TextEditingController _nombreCtrl;
+  late final TextEditingController _umbralCtrl;
+  late CondicionAlerta _condicion;
+  late Set<AccionAlerta> _acciones;
+  late bool _activa;
+
+  bool get esEdicion => widget.regla != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final r = widget.regla;
+    _nombreCtrl = TextEditingController(text: r?.nombre ?? '');
+    _umbralCtrl =
+        TextEditingController(text: r != null ? '${r.umbral}' : '');
+    _condicion = r?.condicion ?? CondicionAlerta.varianzaCombustible;
+    _acciones = {...?r?.acciones};
+    if (_acciones.isEmpty) _acciones = {AccionAlerta.notificarSupervisor};
+    _activa = r?.activa ?? true;
+  }
+
+  @override
+  void dispose() {
+    _nombreCtrl.dispose();
+    _umbralCtrl.dispose();
+    super.dispose();
+  }
+
+  void _guardar() {
+    final nombre = _nombreCtrl.text.trim();
+    final umbral = double.tryParse(_umbralCtrl.text.trim());
+    if (nombre.isEmpty || umbral == null || _acciones.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Completa nombre, umbral y al menos una acción'),
+      ));
+      return;
+    }
+    final notifier = ref.read(reglasAlertaProvider.notifier);
+    if (esEdicion) {
+      notifier.actualizarRegla(widget.regla!.copyWith(
+        nombre: nombre,
+        condicion: _condicion,
+        umbral: umbral,
+        acciones: _acciones.toList(),
+        activa: _activa,
+      ));
+    } else {
+      notifier.agregarRegla(ReglaAlerta(
+        id: 'r-${DateTime.now().millisecondsSinceEpoch}',
+        nombre: nombre,
+        condicion: _condicion,
+        umbral: umbral,
+        acciones: _acciones.toList(),
+        activa: _activa,
+        creadaAt: DateTime.now(),
+      ));
+    }
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(esEdicion ? 'Regla actualizada' : 'Regla creada'),
+      backgroundColor: GloboColors.success,
+    ));
+  }
+
+  void _eliminar() {
+    ref.read(reglasAlertaProvider.notifier).eliminarRegla(widget.regla!.id);
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('Regla eliminada'),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(esEdicion ? 'Editar regla' : 'Nueva regla de alerta'),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: _nombreCtrl,
+                decoration: const InputDecoration(labelText: 'Nombre *'),
+                textCapitalization: TextCapitalization.sentences,
+              ),
+              const SizedBox(height: GloboSpacing.md),
+              DropdownButtonFormField<CondicionAlerta>(
+                initialValue: _condicion,
+                decoration: const InputDecoration(labelText: 'Condición'),
+                items: CondicionAlerta.values
+                    .map((c) => DropdownMenuItem(
+                          value: c,
+                          child: Text(_condicionLabel(c)),
+                        ))
+                    .toList(),
+                onChanged: (v) => setState(() => _condicion = v!),
+              ),
+              const SizedBox(height: GloboSpacing.md),
+              TextField(
+                controller: _umbralCtrl,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  labelText: 'Umbral *',
+                  helperText: _umbralHint(_condicion),
+                ),
+              ),
+              const SizedBox(height: GloboSpacing.md),
+              Text('Acciones', style: GloboTypography.labelLarge),
+              ...AccionAlerta.values.map((a) => CheckboxListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    value: _acciones.contains(a),
+                    title: Text(_accionLabel(a),
+                        style: GloboTypography.bodyMedium),
+                    onChanged: (sel) => setState(() {
+                      if (sel == true) {
+                        _acciones.add(a);
+                      } else {
+                        _acciones.remove(a);
+                      }
+                    }),
+                  )),
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Regla activa'),
+                value: _activa,
+                onChanged: (v) => setState(() => _activa = v),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        if (esEdicion)
+          TextButton.icon(
+            icon: const Icon(Icons.delete_outline, size: 16),
+            label: const Text('Eliminar'),
+            style: TextButton.styleFrom(foregroundColor: GloboColors.error),
+            onPressed: _eliminar,
+          ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        ElevatedButton(
+          onPressed: _guardar,
+          child: Text(esEdicion ? 'Guardar' : 'Crear'),
+        ),
+      ],
     );
   }
 }

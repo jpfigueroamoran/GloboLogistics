@@ -475,8 +475,12 @@ class _PersonaTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final (color, label) = switch (usuario.rol) {
       RolUsuario.administrador => (GloboColors.accentBright, 'Admin'),
-      RolUsuario.supervisor => (GloboColors.primary, 'Supervisor'),
-      RolUsuario.operador => (GloboColors.estadoTransito, 'Operador'),
+      RolUsuario.direccion     => (GloboColors.primaryAccent, 'Dirección'),
+      RolUsuario.supervisor    => (GloboColors.primary, 'Supervisor'),
+      RolUsuario.despachador   => (GloboColors.info, 'Despachador'),
+      RolUsuario.mantenimiento => (GloboColors.warning, 'Mantto.'),
+      RolUsuario.operador      => (GloboColors.estadoTransito, 'Operador'),
+      RolUsuario.solicitante   => (GloboColors.success, 'Solicitante'),
     };
     return Card(
       margin: const EdgeInsets.only(bottom: GloboSpacing.sm),

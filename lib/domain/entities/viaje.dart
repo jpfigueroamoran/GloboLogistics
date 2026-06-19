@@ -39,6 +39,32 @@ class GeoPoint {
   const GeoPoint({required this.lat, required this.lng});
 }
 
+/// Seguimiento en vivo que el dispositivo del operador publica al viaje para
+/// que Torre de Control vea progreso y ETA sin abrir el teléfono del operador.
+class SeguimientoViaje extends Equatable {
+  /// Zona del geofence: cercaOrigen, enBodegaCarga, enTransito, cercaDestino,
+  /// enDestino, fueraDeRuta (coincide con GeofenceZone.name).
+  final String zona;
+  final double? distanciaDestinoM;
+  final int? etaMin;
+  final DateTime? actualizadoEn;
+
+  const SeguimientoViaje({
+    required this.zona,
+    this.distanciaDestinoM,
+    this.etaMin,
+    this.actualizadoEn,
+  });
+
+  /// true si el último reporte tiene menos de 5 minutos (posición fresca).
+  bool get esReciente =>
+      actualizadoEn != null &&
+      DateTime.now().difference(actualizadoEn!).inMinutes < 5;
+
+  @override
+  List<Object?> get props => [zona, distanciaDestinoM, etaMin, actualizadoEn];
+}
+
 class TcoViaje extends Equatable {
   final double combustible;
   final double mantenimiento;
@@ -79,6 +105,12 @@ class Viaje extends Equatable {
   final List<Destino> destinos;
   final String? observaciones;
   final String? justificacionVarianza;
+  final SeguimientoViaje? seguimiento;
+
+  /// Solicitud de transporte que originó este viaje (si nació del intake del
+  /// solicitante). El motor propaga el estado del viaje a esa solicitud.
+  final String? solicitudId;
+
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -103,6 +135,8 @@ class Viaje extends Equatable {
     this.tco = const TcoViaje(),
     this.observaciones,
     this.justificacionVarianza,
+    this.seguimiento,
+    this.solicitudId,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -123,6 +157,8 @@ class Viaje extends Equatable {
     DateTime? fechaFin,
     String? observaciones,
     String? justificacionVarianza,
+    SeguimientoViaje? seguimiento,
+    String? solicitudId,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -149,6 +185,8 @@ class Viaje extends Equatable {
       tco: tco ?? this.tco,
       observaciones: observaciones ?? this.observaciones,
       justificacionVarianza: justificacionVarianza ?? this.justificacionVarianza,
+      seguimiento: seguimiento ?? this.seguimiento,
+      solicitudId: solicitudId ?? this.solicitudId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? DateTime.now(),
     );

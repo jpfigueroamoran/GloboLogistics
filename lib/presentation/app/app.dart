@@ -38,12 +38,18 @@ class GloboApp extends ConsumerWidget {
     // al login — el router no observa el estado de auth, así que la navegación
     // debe hacerse aquí explícitamente.
     ref.listen<AuthState>(authStatusProvider, (prev, next) {
-      final estabaDentro = prev?.status == AuthStatus.operador ||
-          prev?.status == AuthStatus.torreControl;
+      const dentro = {
+        AuthStatus.operador,
+        AuthStatus.solicitante,
+        AuthStatus.despachador,
+        AuthStatus.mantenimiento,
+        AuthStatus.direccion,
+        AuthStatus.torreControl,
+      };
       final perdioSesion = next.status == AuthStatus.unauthenticated ||
           next.status == AuthStatus.desactivado ||
           next.status == AuthStatus.sinPerfil;
-      if (estabaDentro && perdioSesion) {
+      if (dentro.contains(prev?.status) && perdioSesion) {
         ref.read(routerProvider).go(AppRoutes.auth);
       }
     });

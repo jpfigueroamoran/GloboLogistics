@@ -74,10 +74,17 @@ class ViajeGeoMonitorNotifier extends StateNotifier<GeoMonitorState> {
   bool _autoStartedThisSession = false;
   bool _autoCompletedThisSession = false;
 
+  // Throttle de publicación de seguimiento a Torre de Control
+  DateTime? _ultimoReporte;
+  GeofenceZone? _zonaReportada;
+
   // Radio de geofences (metros)
   static const double _radioOrigenM   = 300;
   static const double _radioDestinoM  = 200;
   static const double _radioCercaM    = 600;
+
+  // Velocidad promedio para estimar ETA sin API de ruteo de pago (costo-cero)
+  static const double _velocidadPromedioKmh = 45;
 
   // Tiempo parado en destino para auto-completar (segundos)
   static const int _stopSegundos = 300; // 5 min
@@ -156,6 +163,42 @@ class ViajeGeoMonitorNotifier extends StateNotifier<GeoMonitorState> {
       zona: zona,
       distanciaOrigenM: distOrigen,
       distanciaDestinoM: distDestino,
+    );
+
+    _publicarSeguimiento(viaje, zona, distDestino);
+  }
+
+  /// Publica zona + ETA al viaje para que Torre de Control lo vea en vivo.
+  /// Throttle: solo cuando cambia la zona o han pasado >30 s, para no escribir
+  /// en cada ping de GPS (cuida la cuota gratuita de Firestore).
+  void _publicarSeguimiento(
+      Viaje viaje, GeofenceZone zona, double? distDestino) {
+    if (viaje.estado != EstadoViaje.enCurso) return;
+
+    final ahora = DateTime.now();
+    final cambioZona = zona != _zonaReportada;
+    final pasoTiempo = _ultimoReporte == null ||
+        ahora.difference(_ultimoReporte!).inSeconds >= 30;
+    if (!cambioZona && !pasoTiempo) return;
+
+    _ultimoReporte = ahora;
+    _zonaReportada = zona;
+
+    int? etaMin;
+    if (distDestino != null && distDestino > 0) {
+      final horas = (distDestino / 1000) / _velocidadPromedioKmh;
+      etaMin = (horas * 60).ceil();
+    } else if (zona == GeofenceZone.enDestino) {
+      etaMin = 0;
+    }
+
+    _viajeRepo.actualizarSeguimiento(
+      viaje.id,
+      SeguimientoViaje(
+        zona: zona.name,
+        distanciaDestinoM: distDestino,
+        etaMin: etaMin,
+      ),
     );
   }
 

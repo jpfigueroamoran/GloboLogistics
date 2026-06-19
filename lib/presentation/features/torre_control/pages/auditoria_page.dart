@@ -5,11 +5,43 @@ import '../../../../domain/entities/viaje.dart';
 import '../providers/dashboard_provider.dart';
 import '../widgets/litro_exacto_panel_widget.dart';
 
-class AuditoriaPage extends ConsumerWidget {
+enum _Periodo { hoy, semana, mes, todo }
+
+String _periodoLabel(_Periodo p) => switch (p) {
+      _Periodo.hoy    => 'Hoy',
+      _Periodo.semana => 'Últimos 7 días',
+      _Periodo.mes    => 'Últimos 30 días',
+      _Periodo.todo   => 'Todo',
+    };
+
+class AuditoriaPage extends ConsumerStatefulWidget {
   const AuditoriaPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AuditoriaPage> createState() => _AuditoriaPageState();
+}
+
+class _AuditoriaPageState extends ConsumerState<AuditoriaPage> {
+  _Periodo _periodo = _Periodo.todo;
+
+  bool _enPeriodo(Viaje v) {
+    if (_periodo == _Periodo.todo) return true;
+    final ref = v.fechaFin ?? v.fechaInicio ?? v.createdAt;
+    final ahora = DateTime.now();
+    return switch (_periodo) {
+      _Periodo.hoy => ref.year == ahora.year &&
+          ref.month == ahora.month &&
+          ref.day == ahora.day,
+      _Periodo.semana =>
+        ref.isAfter(ahora.subtract(const Duration(days: 7))),
+      _Periodo.mes =>
+        ref.isAfter(ahora.subtract(const Duration(days: 30))),
+      _Periodo.todo => true,
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final viajesSP = ref.watch(viajesActivosProvider);
 
     return Scaffold(
@@ -28,10 +60,32 @@ class AuditoriaPage extends ConsumerWidget {
           ],
         ),
         actions: [
-          TextButton.icon(
-            icon: const Icon(Icons.filter_list, size: 16),
-            label: const Text('Periodo'),
-            onPressed: () {},
+          PopupMenuButton<_Periodo>(
+            initialValue: _periodo,
+            onSelected: (p) => setState(() => _periodo = p),
+            itemBuilder: (_) => _Periodo.values
+                .map((p) => PopupMenuItem(
+                      value: p,
+                      child: Row(children: [
+                        if (p == _periodo)
+                          const Icon(Icons.check,
+                              size: 16, color: GloboColors.primary)
+                        else
+                          const SizedBox(width: 16),
+                        const SizedBox(width: 8),
+                        Text(_periodoLabel(p)),
+                      ]),
+                    ))
+                .toList(),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: GloboSpacing.md),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.filter_list, size: 16),
+                const SizedBox(width: 4),
+                Text(_periodoLabel(_periodo),
+                    style: GloboTypography.labelLarge),
+              ]),
+            ),
           ),
           const SizedBox(width: GloboSpacing.md),
         ],
@@ -39,7 +93,9 @@ class AuditoriaPage extends ConsumerWidget {
       body: viajesSP.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text(e.toString())),
-        data: (viajes) => _AuditoriaContent(viajes: viajes),
+        data: (viajes) => _AuditoriaContent(
+          viajes: viajes.where(_enPeriodo).toList(),
+        ),
       ),
     );
   }

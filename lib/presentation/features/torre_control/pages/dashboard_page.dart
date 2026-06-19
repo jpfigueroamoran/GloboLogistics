@@ -16,6 +16,7 @@ import '../widgets/fleet_map_widget.dart';
 import '../widgets/notification_center_widget.dart';
 import 'score_operadores_page.dart';
 import 'despacho_page.dart';
+import 'entregas_page.dart';
 import 'flota_page.dart';
 import 'clientes_page.dart';
 import 'alertas_reglas_page.dart';
@@ -37,6 +38,7 @@ import '../../../../demo/demo_providers.dart' show demoUserProvider, appModeProv
 
 enum _Seccion {
   overview,
+  entregas,
   despacho,
   flota,
   clientes,
@@ -177,6 +179,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
           child: _Sidebar(
             selected: _seccion,
             alertasCount: metrics.alertasActivas,
+            entregasEnRuta: metrics.viajesEnCurso,
             mantenimientoCriticos: criticos,
             documentosVencidos: vencidos,
             esAdmin: esAdmin,
@@ -199,6 +202,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
           _Sidebar(
             selected: _seccion,
             alertasCount: metrics.alertasActivas,
+            entregasEnRuta: metrics.viajesEnCurso,
             mantenimientoCriticos: criticos,
             documentosVencidos: vencidos,
             esAdmin: esAdmin,
@@ -225,6 +229,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
 
   String _seccionLabel(_Seccion s) => switch (s) {
         _Seccion.overview        => 'Dashboard Ejecutivo',
+        _Seccion.entregas        => 'Entregas en Curso',
         _Seccion.despacho        => 'Centro de Despacho',
         _Seccion.flota           => 'Gestión de Flota',
         _Seccion.clientes        => 'Cartera de Clientes',
@@ -249,6 +254,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
             metrics: ref.watch(dashboardMetricsProvider),
             onNavigate: (s) => setState(() => _seccion = s),
           ),
+        _Seccion.entregas        => const EntregasPage(),
         _Seccion.despacho        => const DespachoPag(),
         _Seccion.flota           => const FlotaPage(),
         _Seccion.clientes        => const ClientesPage(),
@@ -273,6 +279,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
 class _Sidebar extends StatelessWidget {
   final _Seccion selected;
   final int alertasCount;
+  final int entregasEnRuta;
   final int mantenimientoCriticos;
   final int documentosVencidos;
   final bool esAdmin;
@@ -283,6 +290,7 @@ class _Sidebar extends StatelessWidget {
   const _Sidebar({
     required this.selected,
     required this.alertasCount,
+    required this.entregasEnRuta,
     required this.mantenimientoCriticos,
     required this.documentosVencidos,
     required this.esAdmin,
@@ -377,6 +385,7 @@ class _Sidebar extends StatelessWidget {
                   // ── OPERACIONES ──────────────────────────────────────
                   _GroupLabel('OPS', expanded: e),
                   _NavItem(icon: Icons.dashboard_outlined,   label: 'Overview',  expanded: e, isSelected: selected == _Seccion.overview,        onTap: () => onSelect(_Seccion.overview)),
+                  _NavItem(icon: Icons.route_outlined,       label: 'Entregas',  expanded: e, isSelected: selected == _Seccion.entregas,         badge: entregasEnRuta > 0 ? entregasEnRuta : null, onTap: () => onSelect(_Seccion.entregas)),
                   _NavItem(icon: Icons.assignment_outlined,  label: 'Despacho',  expanded: e, isSelected: selected == _Seccion.despacho,         onTap: () => onSelect(_Seccion.despacho)),
                   _NavItem(icon: Icons.local_shipping_outlined, label: 'Flota',  expanded: e, isSelected: selected == _Seccion.flota,            onTap: () => onSelect(_Seccion.flota)),
                   _NavItem(icon: Icons.business_outlined,    label: 'Clientes',  expanded: e, isSelected: selected == _Seccion.clientes,         onTap: () => onSelect(_Seccion.clientes)),
@@ -385,20 +394,25 @@ class _Sidebar extends StatelessWidget {
                   _NavItem(icon: Icons.description_outlined, label: 'Docs.',     expanded: e, isSelected: selected == _Seccion.documentos,       badge: documentosVencidos > 0 ? documentosVencidos : null,       onTap: () => onSelect(_Seccion.documentos)),
 
                   // ── FINANZAS ─────────────────────────────────────────
+                  // Supervisor: solo consulta (Resumen, Facturación, Reportes).
+                  // Finanzas/activos, Proveedores y Cierre → solo admin.
                   const SizedBox(height: 4),
                   _GroupLabel('FIN', expanded: e),
                   _NavItem(icon: Icons.bar_chart_outlined,       label: 'Resumen',     expanded: e, isSelected: selected == _Seccion.resumen,       onTap: () => onSelect(_Seccion.resumen)),
                   _NavItem(icon: Icons.receipt_long_outlined,    label: 'Facturación', expanded: e, isSelected: selected == _Seccion.facturacion,   onTap: () => onSelect(_Seccion.facturacion)),
-                  _NavItem(icon: Icons.account_balance_outlined, label: 'Finanzas',    expanded: e, isSelected: selected == _Seccion.finanzas,      onTap: () => onSelect(_Seccion.finanzas)),
-                  _NavItem(icon: Icons.inventory_2_outlined,     label: 'Prov. & Inv.', expanded: e, isSelected: selected == _Seccion.proveedores, onTap: () => onSelect(_Seccion.proveedores)),
-                  _NavItem(icon: Icons.check_box_outlined,       label: 'Cierre Mes',  expanded: e, isSelected: selected == _Seccion.cierreMensual, onTap: () => onSelect(_Seccion.cierreMensual)),
+                  if (esAdmin) ...[
+                    _NavItem(icon: Icons.account_balance_outlined, label: 'Finanzas',    expanded: e, isSelected: selected == _Seccion.finanzas,      onTap: () => onSelect(_Seccion.finanzas)),
+                    _NavItem(icon: Icons.inventory_2_outlined,     label: 'Prov. & Inv.', expanded: e, isSelected: selected == _Seccion.proveedores, onTap: () => onSelect(_Seccion.proveedores)),
+                    _NavItem(icon: Icons.check_box_outlined,       label: 'Cierre Mes',  expanded: e, isSelected: selected == _Seccion.cierreMensual, onTap: () => onSelect(_Seccion.cierreMensual)),
+                  ],
                   _NavItem(icon: Icons.analytics_outlined,       label: 'Reportes',    expanded: e, isSelected: selected == _Seccion.reportes,      onTap: () => onSelect(_Seccion.reportes)),
 
                   // ── CONTROL ──────────────────────────────────────────
                   const SizedBox(height: 4),
                   _GroupLabel('CTRL', expanded: e),
                   _NavItem(icon: Icons.warning_amber_outlined, label: 'Alertas',   expanded: e, isSelected: selected == _Seccion.alertas,        badge: alertasCount > 0 ? alertasCount : null, onTap: () => onSelect(_Seccion.alertas)),
-                  _NavItem(icon: Icons.fact_check_outlined,    label: 'Auditoría', expanded: e, isSelected: selected == _Seccion.auditoria,      onTap: () => onSelect(_Seccion.auditoria)),
+                  if (esAdmin)
+                    _NavItem(icon: Icons.fact_check_outlined,    label: 'Auditoría', expanded: e, isSelected: selected == _Seccion.auditoria,      onTap: () => onSelect(_Seccion.auditoria)),
                   _NavItem(icon: Icons.history_outlined,       label: 'Historial', expanded: e, isSelected: selected == _Seccion.historialViajes, onTap: () => onSelect(_Seccion.historialViajes)),
 
                   // ── ADMIN ────────────────────────────────────────────
@@ -974,9 +988,35 @@ class _QuickAction extends StatelessWidget {
   }
 }
 
-class _ViajesTable extends StatelessWidget {
+enum _FiltroViaje { todos, enCurso, programados, banderaRoja }
+
+class _ViajesTable extends StatefulWidget {
   final AsyncValue<List<Viaje>> viajesSP;
   const _ViajesTable({required this.viajesSP});
+
+  @override
+  State<_ViajesTable> createState() => _ViajesTableState();
+}
+
+class _ViajesTableState extends State<_ViajesTable> {
+  _FiltroViaje _filtro = _FiltroViaje.todos;
+
+  String _label(_FiltroViaje f) => switch (f) {
+        _FiltroViaje.todos       => 'Todos',
+        _FiltroViaje.enCurso     => 'En curso',
+        _FiltroViaje.programados => 'Programados',
+        _FiltroViaje.banderaRoja => 'Bandera roja',
+      };
+
+  List<Viaje> _aplicar(List<Viaje> viajes) => switch (_filtro) {
+        _FiltroViaje.todos       => viajes,
+        _FiltroViaje.enCurso     =>
+          viajes.where((v) => v.estado == EstadoViaje.enCurso).toList(),
+        _FiltroViaje.programados =>
+          viajes.where((v) => v.estado == EstadoViaje.programado).toList(),
+        _FiltroViaje.banderaRoja =>
+          viajes.where((v) => v.tieneBanderaRoja).toList(),
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -993,46 +1033,79 @@ class _ViajesTable extends StatelessWidget {
                 Text('Viajes Activos',
                     style: GloboTypography.titleMedium),
                 const Spacer(),
-                TextButton.icon(
-                  icon: const Icon(Icons.filter_list, size: 16),
-                  label: const Text('Filtrar'),
-                  onPressed: () {},
+                PopupMenuButton<_FiltroViaje>(
+                  tooltip: 'Filtrar viajes',
+                  initialValue: _filtro,
+                  onSelected: (f) => setState(() => _filtro = f),
+                  itemBuilder: (_) => _FiltroViaje.values
+                      .map((f) => PopupMenuItem(
+                            value: f,
+                            child: Row(children: [
+                              if (f == _filtro)
+                                const Icon(Icons.check,
+                                    size: 16, color: GloboColors.primary)
+                              else
+                                const SizedBox(width: 16),
+                              const SizedBox(width: 8),
+                              Text(_label(f)),
+                            ]),
+                          ))
+                      .toList(),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.filter_list,
+                        size: 16, color: GloboColors.primary),
+                    const SizedBox(width: 4),
+                    Text(_label(_filtro),
+                        style: GloboTypography.labelSmall
+                            .copyWith(color: GloboColors.primary)),
+                  ]),
                 ),
               ],
             ),
           ),
           const Divider(height: 0),
           Expanded(
-            child: viajesSP.when(
+            child: widget.viajesSP.when(
               loading: () =>
                   const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text(e.toString())),
-              data: (viajes) => viajes.isEmpty
-                  ? const Center(child: Text('No hay viajes activos'))
-                  : ListView.separated(
-                      padding: EdgeInsets.zero,
-                      itemCount: viajes.length,
-                      separatorBuilder: (_, __) => const Divider(height: 0),
-                      itemBuilder: (ctx, i) {
-                        final v = viajes[i];
-                        return ListTile(
-                          leading: _EstadoIndicator(estado: v.estado),
-                          title: Text(
-                            '${v.origenDescripcion} → ${v.destinoDescripcion}',
-                            style: GloboTypography.titleMedium,
-                          ),
-                          subtitle: Text(
-                            'TCO: \$${v.tco.total.toStringAsFixed(0)} MXN  |  '
-                            'Litros: ${v.litrosCargados.toStringAsFixed(0)} L',
-                            style: GloboTypography.caption,
-                          ),
-                          trailing: v.tieneBanderaRoja
-                              ? const Icon(Icons.flag,
-                                  color: GloboColors.error, size: 20)
-                              : null,
-                        );
-                      },
+              data: (todos) {
+                final viajes = _aplicar(todos);
+                if (viajes.isEmpty) {
+                  return Center(
+                    child: Text(
+                      _filtro == _FiltroViaje.todos
+                          ? 'No hay viajes activos'
+                          : 'Sin viajes en "${_label(_filtro)}"',
+                      style: GloboTypography.caption,
                     ),
+                  );
+                }
+                return ListView.separated(
+                  padding: EdgeInsets.zero,
+                  itemCount: viajes.length,
+                  separatorBuilder: (_, __) => const Divider(height: 0),
+                  itemBuilder: (ctx, i) {
+                    final v = viajes[i];
+                    return ListTile(
+                      leading: _EstadoIndicator(estado: v.estado),
+                      title: Text(
+                        '${v.origenDescripcion} → ${v.destinoDescripcion}',
+                        style: GloboTypography.titleMedium,
+                      ),
+                      subtitle: Text(
+                        'TCO: \$${v.tco.total.toStringAsFixed(0)} MXN  |  '
+                        'Litros: ${v.litrosCargados.toStringAsFixed(0)} L',
+                        style: GloboTypography.caption,
+                      ),
+                      trailing: v.tieneBanderaRoja
+                          ? const Icon(Icons.flag,
+                              color: GloboColors.error, size: 20)
+                          : null,
+                    );
+                  },
+                );
+              },
             ),
           ),
         ],

@@ -4,7 +4,39 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../../../../core/constants/theme_constants.dart';
 import '../../../../domain/entities/unidad.dart';
+import '../../../../domain/entities/viaje.dart';
+import '../providers/dashboard_provider.dart' show viajesActivosProvider;
 import '../providers/unidades_provider.dart';
+
+// Estado operativo derivado (lo que de verdad le importa al supervisor)
+enum _EstadoOperativo { enRuta, disponible, taller, baja }
+
+(_EstadoOperativo, Color) _operativo(Unidad u) {
+  if (u.estado == EstadoUnidad.baja) return (_EstadoOperativo.baja, GloboColors.error);
+  if (u.estado == EstadoUnidad.mantenimiento) {
+    return (_EstadoOperativo.taller, GloboColors.warning);
+  }
+  if (u.enRuta) return (_EstadoOperativo.enRuta, GloboColors.estadoTransito);
+  return (_EstadoOperativo.disponible, GloboColors.success);
+}
+
+String _zonaLabel(String zona) => switch (zona) {
+      'cercaOrigen'   => 'Acercándose a carga',
+      'enBodegaCarga' => 'En bodega de carga',
+      'enTransito'    => 'En tránsito',
+      'cercaDestino'  => 'Llegando al destino',
+      'enDestino'     => 'En destino',
+      _               => 'En ruta',
+    };
+
+String etaLabel(int? etaMin) {
+  if (etaMin == null) return '';
+  if (etaMin <= 0) return 'En el destino';
+  if (etaMin < 60) return 'ETA ~$etaMin min';
+  final h = etaMin ~/ 60;
+  final m = etaMin % 60;
+  return 'ETA ~${h}h ${m}m';
+}
 
 // Centro geográfico de México
 const _mexicoCenter = LatLng(23.6345, -102.5528);
@@ -23,6 +55,14 @@ class _FleetMapWidgetState extends ConsumerState<FleetMapWidget> {
   @override
   Widget build(BuildContext context) {
     final unidadesSP = ref.watch(unidadesActivasProvider);
+    // Viaje en curso por unidad — para mostrar destino y ETA en el mapa
+    final viajes = ref.watch(viajesActivosProvider).valueOrNull ?? [];
+    final viajePorUnidad = <String, Viaje>{};
+    for (final v in viajes) {
+      if (v.estado == EstadoViaje.enCurso && v.unidadId.isNotEmpty) {
+        viajePorUnidad[v.unidadId] = v;
+      }
+    }
 
     return Container(
       margin: const EdgeInsets.all(GloboSpacing.md),
@@ -39,6 +79,7 @@ class _FleetMapWidgetState extends ConsumerState<FleetMapWidget> {
               error: (e, _) => _MapError(message: e.toString()),
               data: (unidades) => _FlutterMapView(
                 unidades: unidades,
+                viajePorUnidad: viajePorUnidad,
                 selectedId: _selectedUnidadId,
                 mapController: _mapController,
                 onMarkerTap: (id) => setState(() => _selectedUnidadId = id),
@@ -71,12 +112,14 @@ class _FleetMapWidgetState extends ConsumerState<FleetMapWidget> {
 
 class _FlutterMapView extends StatelessWidget {
   final List<Unidad> unidades;
+  final Map<String, Viaje> viajePorUnidad;
   final String? selectedId;
   final MapController mapController;
   final void Function(String) onMarkerTap;
 
   const _FlutterMapView({
     required this.unidades,
+    required this.viajePorUnidad,
     required this.selectedId,
     required this.mapController,
     required this.onMarkerTap,
@@ -90,30 +133,21 @@ class _FlutterMapView extends StatelessWidget {
       final pos = u.ultimaPosicion;
       if (pos == null) continue;
 
-      final color = u.estado == EstadoUnidad.activa
-          ? GloboColors.success
-          : u.estado == EstadoUnidad.mantenimiento
-              ? GloboColors.warning
-              : GloboColors.error;
-
+      final (estadoOp, color) = _operativo(u);
+      final viaje = viajePorUnidad[u.id];
       final isSelected = u.id == selectedId;
 
       markers.add(
         Marker(
           point: LatLng(pos.lat, pos.lng),
-          width: isSelected ? 180 : 40,
-          height: isSelected ? 80 : 40,
+          width: isSelected ? 220 : 40,
+          height: isSelected ? 116 : 40,
           alignment: Alignment.topCenter,
           child: GestureDetector(
             onTap: () => onMarkerTap(u.id),
             child: isSelected
-                ? _InfoTooltip(unidad: u, color: color)
-                : Icon(
-                    Icons.location_on,
-                    color: color,
-                    size: 40,
-                    shadows: const [Shadow(blurRadius: 10, color: Colors.black54)],
-                  ),
+                ? _InfoTooltip(unidad: u, viaje: viaje, color: color)
+                : _MarkerPin(color: color, enRuta: estadoOp == _EstadoOperativo.enRuta),
           ),
         ),
       );
@@ -138,30 +172,91 @@ class _FlutterMapView extends StatelessWidget {
   }
 }
 
-// ── Info Tooltip (para marcadores seleccionados) ──────────────────────────────
-class _InfoTooltip extends StatelessWidget {
-  final Unidad unidad;
+// ── Pin del marcador (anillo pulsante si va en ruta) ──────────────────────────
+class _MarkerPin extends StatelessWidget {
   final Color color;
-
-  const _InfoTooltip({required this.unidad, required this.color});
+  final bool enRuta;
+  const _MarkerPin({required this.color, required this.enRuta});
 
   @override
   Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        if (enRuta)
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: color.withAlpha(45),
+              border: Border.all(color: color.withAlpha(120)),
+            ),
+          ),
+        Icon(
+          enRuta ? Icons.local_shipping : Icons.location_on,
+          color: color,
+          size: enRuta ? 22 : 36,
+          shadows: const [Shadow(blurRadius: 10, color: Colors.black54)],
+        ),
+      ],
+    );
+  }
+}
+
+// ── Info Tooltip (para marcadores seleccionados) ──────────────────────────────
+class _InfoTooltip extends StatelessWidget {
+  final Unidad unidad;
+  final Viaje? viaje;
+  final Color color;
+
+  const _InfoTooltip(
+      {required this.unidad, required this.viaje, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final seg = viaje?.seguimiento;
     return Container(
       decoration: BoxDecoration(
         color: GloboColors.surface,
         borderRadius: GloboRadius.buttonRadius,
         border: Border.all(color: color),
-        boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 10, offset: Offset(0, 4))],
+        boxShadow: const [
+          BoxShadow(color: Colors.black54, blurRadius: 10, offset: Offset(0, 4))
+        ],
       ),
-      padding: const EdgeInsets.all(GloboSpacing.sm),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(unidad.placas, style: GloboTypography.labelSmall.copyWith(color: color)),
-          Text('${unidad.modelo} ${unidad.anio}', style: GloboTypography.caption),
-          const SizedBox(height: 4),
-          Icon(Icons.arrow_drop_down, color: GloboColors.steelGray.withAlpha(120)),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.local_shipping, size: 13, color: color),
+            const SizedBox(width: 4),
+            Text(unidad.placas,
+                style: GloboTypography.labelSmall.copyWith(color: color)),
+          ]),
+          if (viaje != null) ...[
+            const SizedBox(height: 2),
+            Text('→ ${viaje!.destinoDescripcion}',
+                style: GloboTypography.caption,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+            if (seg != null) ...[
+              const SizedBox(height: 2),
+              Text(_zonaLabel(seg.zona),
+                  style: GloboTypography.caption
+                      .copyWith(color: GloboColors.estadoTransito)),
+              if (etaLabel(seg.etaMin).isNotEmpty)
+                Text(etaLabel(seg.etaMin),
+                    style: GloboTypography.labelSmall
+                        .copyWith(color: GloboColors.primary)),
+            ] else
+              Text('Esperando GPS…', style: GloboTypography.caption),
+          ] else
+            Text('${unidad.modelo} ${unidad.anio} · Disponible',
+                style: GloboTypography.caption),
+          const Icon(Icons.arrow_drop_down, color: GloboColors.steelGray),
         ],
       ),
     );
@@ -182,11 +277,11 @@ class _MapLegend extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _LegendDot(color: GloboColors.success, label: 'Activa'),
+          _LegendDot(color: GloboColors.estadoTransito, label: 'En ruta'),
           const SizedBox(width: GloboSpacing.sm),
-          _LegendDot(color: GloboColors.warning, label: 'Mantenimiento'),
+          _LegendDot(color: GloboColors.success, label: 'Disponible'),
           const SizedBox(width: GloboSpacing.sm),
-          _LegendDot(color: GloboColors.error, label: 'Baja'),
+          _LegendDot(color: GloboColors.warning, label: 'Taller'),
         ],
       ),
     );

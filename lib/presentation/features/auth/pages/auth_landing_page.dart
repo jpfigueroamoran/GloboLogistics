@@ -37,6 +37,33 @@ class AuthLandingPage extends ConsumerWidget {
         });
         return const _SplashScreen();
 
+      case AuthStatus.solicitante:
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          context.go(AppRoutes.solicitante, extra: {
+            'uid':    auth.usuario!.uid,
+            'nombre': auth.usuario!.nombre,
+          });
+        });
+        return const _SplashScreen();
+
+      case AuthStatus.despachador:
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          context.go(AppRoutes.despachador);
+        });
+        return const _SplashScreen();
+
+      case AuthStatus.mantenimiento:
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          context.go(AppRoutes.mantenimiento);
+        });
+        return const _SplashScreen();
+
+      case AuthStatus.direccion:
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          context.go(AppRoutes.direccion);
+        });
+        return const _SplashScreen();
+
       case AuthStatus.torreControl:
         // El administrador hace la configuración inicial la primera vez.
         // En modo demo no aplica (los datos son mock).

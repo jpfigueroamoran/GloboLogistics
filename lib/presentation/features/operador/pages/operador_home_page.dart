@@ -10,6 +10,7 @@ import '../providers/viaje_geo_monitor_provider.dart';
 import '../widgets/ocr_capture_widget.dart';
 import '../widgets/operador_map_widget.dart';
 import 'carga_combustible_page.dart';
+import 'escanear_vehiculo_page.dart';
 import 'iniciar_viaje_page.dart';
 import 'sos_page.dart';
 import '../widgets/justificacion_dialog.dart';
@@ -19,6 +20,7 @@ import '../../../../presentation/features/torre_control/providers/dashboard_prov
 import '../../../../presentation/features/torre_control/providers/operador_score_provider.dart';
 
 import '../widgets/connectivity_sync_listener.dart';
+import '../widgets/offline_banner.dart';
 import '../providers/gps_tracker_provider.dart';
 import '../providers/captura_remota_provider.dart';
 import '../widgets/captura_remota_overlay.dart';
@@ -42,16 +44,48 @@ class OperadorHomePage extends ConsumerStatefulWidget {
 class _OperadorHomePageState extends ConsumerState<OperadorHomePage> {
   final Set<String> _capturasMostradas = {};
 
+  // Vehículo activo de la sesión — se cambia escaneando el QR de la cabina.
+  late String _unidadActual = widget.unidadId;
+  String? _placasActual;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // En demo no hay sesión Firebase: el ping GPS a Firestore solo generaría
       // errores de permisos, así que únicamente se rastrea en producción.
-      if (!ref.read(appModeProvider)) {
-        ref.read(gpsTrackerProvider.notifier).startTracking(widget.unidadId);
+      if (!ref.read(appModeProvider) && _unidadActual.isNotEmpty) {
+        ref.read(gpsTrackerProvider.notifier).startTracking(_unidadActual);
       }
     });
+  }
+
+  /// Abre el escáner de QR y, al asociar, cambia el vehículo de la sesión:
+  /// reinicia el rastreo GPS hacia la unidad nueva.
+  Future<void> _escanearVehiculo() async {
+    final resultado = await Navigator.of(context).push<VehiculoAsociado>(
+      MaterialPageRoute(
+        builder: (_) => EscanearVehiculoPage(
+          operadorUid: widget.operadorId,
+          unidadPrevia: _unidadActual.isEmpty ? null : _unidadActual,
+        ),
+      ),
+    );
+    if (resultado == null || !mounted) return;
+
+    ref.read(gpsTrackerProvider.notifier).stopTracking();
+    setState(() {
+      _unidadActual = resultado.unidadId;
+      _placasActual = resultado.placas;
+    });
+    ref.read(gpsTrackerProvider.notifier).startTracking(_unidadActual);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text('Vehículo ${resultado.placas} asociado'),
+        backgroundColor: GloboColors.success,
+        behavior: SnackBarBehavior.floating,
+      ));
   }
 
   @override
@@ -59,6 +93,15 @@ class _OperadorHomePageState extends ConsumerState<OperadorHomePage> {
     final state   = ref.watch(operadorProvider);
     final viajeSP = ref.watch(viajeActivoStreamProvider(widget.operadorId));
     final isDemo  = ref.watch(appModeProvider);
+
+    // Sin vehículo asociado (producción): el operador debe escanear el QR de
+    // su cabina antes de operar — así el GPS y el SOS apuntan a la unidad real.
+    if (!isDemo && _unidadActual.isEmpty) {
+      return Scaffold(
+        appBar: _buildAppBar(context, ref, state),
+        body: _SinVehiculoGate(onEscanear: _escanearVehiculo),
+      );
+    }
 
     // Escucha solicitudes de captura remota del supervisor (solo producción —
     // en demo el stream consultaría Firestore real sin sesión).
@@ -92,26 +135,45 @@ class _OperadorHomePageState extends ConsumerState<OperadorHomePage> {
     return ConnectivitySyncListener(
       child: Scaffold(
         appBar: _buildAppBar(context, ref, state),
-        body: viajeSP.when(
-          loading: () => const _LoadingBody(),
-          error:   (e, _) => _ErrorBody(message: e.toString()),
-          data: (viajes) {
-            final viaje = viajes.isNotEmpty ? viajes.first : null;
-            if (state.viajeActivo == null && viaje != null) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                ref.read(operadorProvider.notifier).setViajeActivo(viaje);
-              });
-            }
-            return _OperadorBody(
-              viaje:      viaje,
-              operadorId: widget.operadorId,
-              unidadId:   widget.unidadId,
-            );
-          },
+        body: Column(
+          children: [
+            const OfflineBanner(),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () async {
+                  ref.invalidate(
+                      viajeActivoStreamProvider(widget.operadorId));
+                  ref.invalidate(operadorScoresProvider);
+                  // Pequeña espera para que el gesto se sienta atendido
+                  await Future<void>.delayed(
+                      const Duration(milliseconds: 600));
+                },
+                child: viajeSP.when(
+                  loading: () => const _LoadingBody(),
+                  error: (e, _) => _ErrorBody(message: e.toString()),
+                  data: (viajes) {
+                    final viaje = viajes.isNotEmpty ? viajes.first : null;
+                    if (state.viajeActivo == null && viaje != null) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        ref
+                            .read(operadorProvider.notifier)
+                            .setViajeActivo(viaje);
+                      });
+                    }
+                    return _OperadorBody(
+                      viaje: viaje,
+                      operadorId: widget.operadorId,
+                      unidadId: _unidadActual,
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
         ),
         bottomNavigationBar: _QuickActionsBar(
           operadorId: widget.operadorId,
-          unidadId:   widget.unidadId,
+          unidadId:   _unidadActual,
           viajeId:    state.viajeActivo?.id ?? '',
         ),
       ),
@@ -173,7 +235,15 @@ class _OperadorHomePageState extends ConsumerState<OperadorHomePage> {
       ),
       // ── Menú desplegable de estado + sincronización ───────────────────────
       actions: [
-        _EstadoMenuButton(state: state),
+        if (!ref.watch(appModeProvider))
+          IconButton(
+            icon: const Icon(Icons.qr_code_scanner, color: Colors.white),
+            tooltip: _unidadActual.isEmpty
+                ? 'Asociar vehículo'
+                : 'Cambiar vehículo${_placasActual != null ? ' ($_placasActual)' : ''}',
+            onPressed: _escanearVehiculo,
+          ),
+        _EstadoMenuButton(state: state, ref: ref),
         IconButton(
           icon: const Icon(Icons.logout, color: Colors.white),
           tooltip: 'Cerrar sesión',
@@ -188,7 +258,8 @@ class _OperadorHomePageState extends ConsumerState<OperadorHomePage> {
 
 class _EstadoMenuButton extends StatelessWidget {
   final OperadorState state;
-  const _EstadoMenuButton({required this.state});
+  final WidgetRef ref;
+  const _EstadoMenuButton({required this.state, required this.ref});
 
   Color get _dotColor => switch (state.estadoActual) {
         EstadoOperador.offline  => GloboColors.estadoOffline,
@@ -197,13 +268,40 @@ class _EstadoMenuButton extends StatelessWidget {
         EstadoOperador.descarga => GloboColors.estadoDescarga,
       };
 
+  // Estados que el operador puede fijar manualmente durante un viaje activo
+  static const _seleccionables = [
+    EstadoOperador.carga,
+    EstadoOperador.transito,
+    EstadoOperador.descarga,
+  ];
+
+  Color _colorDe(EstadoOperador e) => switch (e) {
+        EstadoOperador.offline  => GloboColors.estadoOffline,
+        EstadoOperador.carga    => GloboColors.estadoCarga,
+        EstadoOperador.transito => GloboColors.estadoTransito,
+        EstadoOperador.descarga => GloboColors.estadoDescarga,
+      };
+
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<void>(
+    final hayViaje = state.viajeActivo != null;
+    return PopupMenuButton<EstadoOperador>(
       tooltip: 'Estado del operador',
       color: GloboColors.surface,
       shape: RoundedRectangleBorder(borderRadius: GloboRadius.cardRadius),
       offset: const Offset(0, 48),
+      onSelected: (nuevo) {
+        ref
+            .read(operadorProvider.notifier)
+            .cambiarEstado(nuevo, state.viajeActivo?.id);
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text('Estado actualizado a ${nuevo.label}'),
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ));
+      },
       // Botón compacto en el AppBar
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -247,7 +345,7 @@ class _EstadoMenuButton extends StatelessWidget {
         ),
       ),
       itemBuilder: (_) => [
-        PopupMenuItem<void>(
+        PopupMenuItem<EstadoOperador>(
           enabled: false,
           padding: const EdgeInsets.symmetric(
               horizontal: 16, vertical: 4),
@@ -278,6 +376,46 @@ class _EstadoMenuButton extends StatelessWidget {
             ],
           ),
         ),
+        const PopupMenuDivider(),
+        // ── Cambiar de fase (solo con viaje activo) ─────────────────────
+        if (hayViaje)
+          PopupMenuItem<EstadoOperador>(
+            enabled: false,
+            height: 28,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text('Cambiar fase del viaje',
+                style: GloboTypography.caption.copyWith(letterSpacing: 0.8)),
+          )
+        else
+          PopupMenuItem<EstadoOperador>(
+            enabled: false,
+            height: 28,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text('Inicia un viaje para cambiar de fase',
+                style: GloboTypography.caption
+                    .copyWith(color: GloboColors.textTertiary)),
+          ),
+        ..._seleccionables.map((e) {
+          final activo = state.estadoActual == e;
+          return PopupMenuItem<EstadoOperador>(
+            value: e,
+            enabled: hayViaje && !activo,
+            child: Row(children: [
+              Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                    shape: BoxShape.circle, color: _colorDe(e)),
+              ),
+              const SizedBox(width: 10),
+              Text(e.label),
+              const Spacer(),
+              if (activo)
+                const Icon(Icons.check,
+                    size: 16, color: GloboColors.primary),
+            ]),
+          );
+        }),
       ],
     );
   }
@@ -375,6 +513,7 @@ class _OperadorBody extends ConsumerWidget {
     }
 
     return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(GloboSpacing.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1186,6 +1325,63 @@ class _TripElapsedTimerState extends State<_TripElapsedTimer> {
       icon:  Icons.timer_outlined,
       value: _label,
       label: 'tiempo',
+    );
+  }
+}
+
+// ── Puerta: sin vehículo asociado ─────────────────────────────────────────────
+
+class _SinVehiculoGate extends StatelessWidget {
+  final VoidCallback onEscanear;
+  const _SinVehiculoGate({required this.onEscanear});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(GloboSpacing.xl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 88,
+              height: 88,
+              decoration: BoxDecoration(
+                color: GloboColors.primary.withAlpha(18),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.qr_code_scanner,
+                  size: 44, color: GloboColors.primary),
+            ),
+            const SizedBox(height: GloboSpacing.lg),
+            Text('Asocia tu vehículo',
+                style: GloboTypography.headlineMedium,
+                textAlign: TextAlign.center),
+            const SizedBox(height: GloboSpacing.sm),
+            Text(
+              'Escanea el código QR pegado en la cabina del vehículo que vas a '
+              'conducir hoy. Así tu posición y el botón SOS quedan ligados a la '
+              'unidad correcta.',
+              style: GloboTypography.bodyMedium
+                  .copyWith(color: GloboColors.textSecondary),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: GloboSpacing.xl),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: onEscanear,
+                icon: const Icon(Icons.qr_code_scanner),
+                label: const Text('Escanear vehículo'),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  textStyle: GloboTypography.titleMedium,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

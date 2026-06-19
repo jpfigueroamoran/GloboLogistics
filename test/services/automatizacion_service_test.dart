@@ -172,6 +172,74 @@ void main() {
     });
   });
 
+  group('Enlace solicitud ↔ viaje', () {
+    Future<void> seedUnidad() => db.collection('unidades').doc('u1').set({
+          'placas': 'AAA111',
+          'estado': 'activa',
+        });
+
+    test('al iniciar el viaje, su solicitud pasa a "en ruta"', () async {
+      await seedUnidad();
+      await db.collection('solicitudes_transporte').doc('s1').set({
+        'solicitante_uid': 'u1',
+        'material': 'Refacciones',
+        'estado': 'asignada',
+      });
+      await db.collection('viajes').doc('v1').set({
+        'estado': 'enCurso',
+        'unidad_id': 'u1',
+        'operador_id': 'op1',
+        'solicitud_id': 's1',
+        'updated_at': ayer(),
+      });
+
+      await motor.ejecutar();
+
+      final s =
+          (await db.collection('solicitudes_transporte').doc('s1').get())
+              .data()!;
+      expect(s['estado'], 'enRuta');
+    });
+
+    test('al completar el viaje, su solicitud pasa a "entregada"', () async {
+      await seedUnidad();
+      await db.collection('solicitudes_transporte').doc('s2').set({
+        'solicitante_uid': 'u1',
+        'material': 'Tarimas',
+        'estado': 'enRuta',
+      });
+      await db.collection('viajes').doc('v2').set({
+        'estado': 'completado',
+        'unidad_id': 'u1',
+        'operador_id': 'op1',
+        'solicitud_id': 's2',
+        'odometro_inicio': 1000,
+        'odometro_fin': 1100,
+        'updated_at': ayer(),
+      });
+
+      await motor.ejecutar();
+
+      final s =
+          (await db.collection('solicitudes_transporte').doc('s2').get())
+              .data()!;
+      expect(s['estado'], 'entregada');
+    });
+
+    test('un viaje sin solicitud ligada no rompe el motor', () async {
+      await seedUnidad();
+      await db.collection('viajes').doc('v3').set({
+        'estado': 'enCurso',
+        'unidad_id': 'u1',
+        'operador_id': 'op1',
+        'updated_at': ayer(),
+      });
+      await motor.ejecutar();
+      final v = (await db.collection('viajes').doc('v3').get()).data()!;
+      expect(v['lc_iniciado'], isTrue);
+    });
+  });
+
   group('Supervisión de tickets de combustible', () {
     test('marca anomalía y crea alerta cuando excede 110 % de la carga',
         () async {

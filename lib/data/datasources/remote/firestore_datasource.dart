@@ -6,6 +6,7 @@ import '../../models/actividad_operativa_model.dart';
 import '../../models/unidad_model.dart';
 import '../../../domain/entities/viaje.dart';
 import '../../../domain/entities/alerta_seguridad.dart';
+import '../../../domain/entities/solicitud_transporte.dart';
 
 class FirestoreDatasource {
   final fs.FirebaseFirestore _db;
@@ -59,6 +60,96 @@ class FirestoreDatasource {
         .update({
       'ultima_posicion': {'lat': posicion.lat, 'lng': posicion.lng},
       'ultima_actualizacion_posicion': fs.FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Asocia el dispositivo del operador a la unidad que acaba de escanear:
+  /// libera la unidad previa (si cambió), reclama la nueva a su nombre y
+  /// actualiza su perfil. Cada escritura está permitida por las reglas para
+  /// el propio operador. Si los operadores rotan de vehículo, esto mantiene
+  /// `operador_asignado_id` correcto (de lo que depende el rastreo GPS).
+  Future<void> asociarVehiculoOperador({
+    required String operadorUid,
+    required String unidadId,
+    String? unidadPrevia,
+  }) async {
+    if (unidadPrevia != null &&
+        unidadPrevia.isNotEmpty &&
+        unidadPrevia != unidadId) {
+      await _db.collection(AppConstants.colUnidades).doc(unidadPrevia).update({
+        'operador_asignado_id': null,
+      });
+    }
+    await _db.collection(AppConstants.colUnidades).doc(unidadId).update({
+      'operador_asignado_id': operadorUid,
+    });
+    await _db.collection(AppConstants.colUsuarios).doc(operadorUid).update({
+      'unidad_asignada_id': unidadId,
+    });
+  }
+
+  // ── Solicitudes de transporte (intake interno) ───────────────────────────
+
+  SolicitudTransporte _solicitudFromDoc(fs.DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>;
+    return SolicitudTransporte(
+      id:                doc.id,
+      solicitanteUid:    d['solicitante_uid'] as String? ?? '',
+      solicitanteNombre: d['solicitante_nombre'] as String? ?? '',
+      material:          d['material'] as String? ?? '',
+      origen:            d['origen'] as String? ?? '',
+      destino:           d['destino'] as String? ?? '',
+      prioridad:
+          PrioridadSolicitudExt.fromName(d['prioridad'] as String?),
+      notas:             d['notas'] as String?,
+      estado:            EstadoSolicitudExt.fromName(d['estado'] as String?),
+      viajeId:           d['viaje_id'] as String?,
+      motivoRechazo:     d['motivo_rechazo'] as String?,
+      createdAt:
+          (d['created_at'] as fs.Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
+
+  Future<String> crearSolicitudTransporte(Map<String, dynamic> data) async {
+    final ref = _db.collection(AppConstants.colSolicitudes).doc();
+    await ref.set({
+      ...data,
+      'estado':     EstadoSolicitud.pendiente.name,
+      'created_at': fs.FieldValue.serverTimestamp(),
+    });
+    return ref.id;
+  }
+
+  /// Solicitudes de un solicitante (su bandeja "Mis solicitudes").
+  Stream<List<SolicitudTransporte>> watchSolicitudesPorSolicitante(
+      String solicitanteUid) {
+    return _db
+        .collection(AppConstants.colSolicitudes)
+        .where('solicitante_uid', isEqualTo: solicitanteUid)
+        .snapshots()
+        .map((snap) => snap.docs.map(_solicitudFromDoc).toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt)));
+  }
+
+  /// Cola del despachador: todas las solicitudes (ordena en memoria).
+  Stream<List<SolicitudTransporte>> watchSolicitudes() {
+    return _db
+        .collection(AppConstants.colSolicitudes)
+        .snapshots()
+        .map((snap) => snap.docs.map(_solicitudFromDoc).toList());
+  }
+
+  Future<void> actualizarEstadoSolicitud(
+    String solicitudId,
+    EstadoSolicitud estado, {
+    String? viajeId,
+    String? motivoRechazo,
+  }) async {
+    await _db.collection(AppConstants.colSolicitudes).doc(solicitudId).update({
+      'estado': estado.name,
+      if (viajeId != null) 'viaje_id': viajeId,
+      if (motivoRechazo != null) 'motivo_rechazo': motivoRechazo,
+      'updated_at': fs.FieldValue.serverTimestamp(),
     });
   }
 
@@ -201,6 +292,21 @@ class FirestoreDatasource {
         .update({
       'tco':        tcoMap,
       'updated_at': fs.FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Publica el seguimiento en vivo del operador. NO toca `updated_at` para no
+  /// disparar al motor de automatización con cada ping de posición.
+  Future<void> setSeguimientoViaje(
+      String viajeId, Map<String, dynamic> seguimiento) async {
+    await _db
+        .collection(AppConstants.colViajes)
+        .doc(viajeId)
+        .update({
+      'seguimiento': {
+        ...seguimiento,
+        'actualizado_en': fs.FieldValue.serverTimestamp(),
+      },
     });
   }
 

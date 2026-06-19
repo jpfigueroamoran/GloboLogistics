@@ -264,9 +264,10 @@ class _NotificationPanel extends ConsumerWidget {
           const Divider(height: 1),
           Padding(
             padding: const EdgeInsets.all(GloboSpacing.sm),
-            child: TextButton(
-              onPressed: () {},
-              child: const Text('Marcar todas como leídas'),
+            child: TextButton.icon(
+              icon: const Icon(Icons.done_all, size: 16),
+              label: const Text('Cerrar panel'),
+              onPressed: onClose,
             ),
           ),
         ],

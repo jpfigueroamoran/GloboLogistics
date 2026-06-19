@@ -107,10 +107,29 @@ class AutomatizacionService {
 
       try {
         await batch.commit();
+        // Propagar al solicitante: su material va "en ruta"
+        await _propagarSolicitud(v['solicitud_id'] as String?, 'enRuta');
         debugPrint('[Automatizacion] Viaje iniciado procesado: ${doc.id}');
       } catch (e) {
         debugPrint('[Automatizacion] Error en viaje ${doc.id}: $e');
       }
+    }
+  }
+
+  /// Avanza el estado de la solicitud ligada a un viaje, para que el
+  /// solicitante vea progreso real sin que nadie lo mueva a mano.
+  Future<void> _propagarSolicitud(String? solicitudId, String estado) async {
+    if (solicitudId == null || solicitudId.isEmpty) return;
+    try {
+      await _db
+          .collection(AppConstants.colSolicitudes)
+          .doc(solicitudId)
+          .update({
+        'estado':     estado,
+        'updated_at': fs.FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      debugPrint('[Automatizacion] No se pudo propagar solicitud: $e');
     }
   }
 
@@ -239,6 +258,9 @@ class AutomatizacionService {
 
     // 6. Factura del cliente (idempotente, folio GL-YYYY-XXXX transaccional)
     await _generarFacturaSiFalta(viajeId, v, total);
+
+    // 6b. Propagar al solicitante: su material fue entregado
+    await _propagarSolicitud(v['solicitud_id'] as String?, 'entregada');
 
     // 7. Log de actividad
     await _db.collection(AppConstants.colActividadOperativa).add({

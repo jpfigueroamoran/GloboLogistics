@@ -31,6 +31,18 @@ enum AuthStatus {
   /// Operador autenticado — debe ir a /operador
   operador,
 
+  /// Solicitante — debe ir a /solicitante
+  solicitante,
+
+  /// Despachador — debe ir a /despachador
+  despachador,
+
+  /// Personal de mantenimiento — debe ir a /mantenimiento
+  mantenimiento,
+
+  /// Dirección (solo lectura de KPIs) — debe ir a /direccion
+  direccion,
+
   /// Supervisor o Administrador — debe ir a /torre-control
   torreControl,
 
@@ -117,11 +129,19 @@ final authStatusProvider = Provider<AuthState>((ref) {
   }
 
   // Rol determina módulo
-  if (perfil.esOperador) {
-    return AuthState(status: AuthStatus.operador, usuario: perfil);
-  }
-  return AuthState(status: AuthStatus.torreControl, usuario: perfil);
+  return AuthState(status: statusParaRol(perfil.rol), usuario: perfil);
 });
+
+/// Traduce el rol del perfil al destino de navegación tras autenticarse.
+AuthStatus statusParaRol(RolUsuario rol) => switch (rol) {
+      RolUsuario.operador      => AuthStatus.operador,
+      RolUsuario.solicitante   => AuthStatus.solicitante,
+      RolUsuario.despachador   => AuthStatus.despachador,
+      RolUsuario.mantenimiento => AuthStatus.mantenimiento,
+      RolUsuario.direccion     => AuthStatus.direccion,
+      RolUsuario.supervisor    => AuthStatus.torreControl,
+      RolUsuario.administrador => AuthStatus.torreControl,
+    };
 
 // ── Sign out ──────────────────────────────────────────────────────────────────
 

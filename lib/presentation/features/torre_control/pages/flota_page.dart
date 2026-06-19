@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../../core/constants/theme_constants.dart';
 import '../../../../data/datasources/remote/firestore_datasource.dart';
@@ -233,6 +237,96 @@ class _UnidadCard extends StatelessWidget {
     required this.onEditar,
   });
 
+  // Carga útil del QR pegado en la cabina: GLUNIDAD:{id}:{placas}
+  String get _qrData => 'GLUNIDAD:${unidad.id}:${unidad.placas}';
+
+  void _mostrarQrDialog(BuildContext context, Unidad u) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Row(children: [
+          const Icon(Icons.qr_code_2, color: GloboColors.primary, size: 20),
+          const SizedBox(width: GloboSpacing.sm),
+          Expanded(child: Text('QR · ${u.placas}')),
+        ]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(GloboSpacing.md),
+              color: Colors.white,
+              child: QrImageView(
+                data: _qrData,
+                size: 200,
+                backgroundColor: Colors.white,
+              ),
+            ),
+            const SizedBox(height: GloboSpacing.sm),
+            Text(u.placas, style: GloboTypography.titleMedium),
+            Text('${u.modelo}${u.anio > 0 ? ' · ${u.anio}' : ''}',
+                style: GloboTypography.caption),
+            const SizedBox(height: GloboSpacing.sm),
+            Text(
+              'Imprime este código y pégalo en la cabina. El operador lo '
+              'escanea para asociar su teléfono al vehículo.',
+              style: GloboTypography.caption,
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cerrar'),
+          ),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.print_outlined, size: 16),
+            label: const Text('Imprimir'),
+            onPressed: () => _imprimirQr(u),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _imprimirQr(Unidad u) async {
+    await Printing.layoutPdf(
+      onLayout: (format) async {
+        final doc = pw.Document();
+        doc.addPage(pw.Page(
+          pageFormat: PdfPageFormat.a6,
+          build: (_) => pw.Center(
+            child: pw.Column(
+              mainAxisAlignment: pw.MainAxisAlignment.center,
+              children: [
+                pw.Text('GLOBO LOGISTICS',
+                    style: pw.TextStyle(
+                        fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                pw.SizedBox(height: 12),
+                pw.BarcodeWidget(
+                  barcode: pw.Barcode.qrCode(),
+                  data: _qrData,
+                  width: 180,
+                  height: 180,
+                ),
+                pw.SizedBox(height: 12),
+                pw.Text(u.placas,
+                    style: pw.TextStyle(
+                        fontSize: 22, fontWeight: pw.FontWeight.bold)),
+                pw.Text('${u.modelo}${u.anio > 0 ? ' · ${u.anio}' : ''}',
+                    style: const pw.TextStyle(fontSize: 11)),
+                pw.SizedBox(height: 8),
+                pw.Text('Escanea para asociar tu vehículo',
+                    style: const pw.TextStyle(fontSize: 9)),
+              ],
+            ),
+          ),
+        ));
+        return doc.save();
+      },
+    );
+  }
+
   (String, Color) get _estadoChip {
     if (unidad.estado == EstadoUnidad.baja) {
       return ('BAJA', GloboColors.textTertiary);
@@ -344,6 +438,22 @@ class _UnidadCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                InkWell(
+                  onTap: () => _mostrarQrDialog(context, unidad),
+                  borderRadius: GloboRadius.chipRadius,
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: const [
+                      Icon(Icons.qr_code_2,
+                          size: 15, color: GloboColors.primary),
+                      SizedBox(width: 3),
+                      Text('QR',
+                          style: TextStyle(
+                              fontSize: 11, color: GloboColors.primary)),
+                    ]),
+                  ),
+                ),
+                const SizedBox(width: GloboSpacing.sm),
                 const Icon(Icons.edit_outlined,
                     size: 14, color: GloboColors.textTertiary),
               ]),
